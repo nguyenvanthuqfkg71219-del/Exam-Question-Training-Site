@@ -1,167 +1,301 @@
-from paddleocr import PaddleOCR
 import paddle
 import re
 import json
+import sqlite3
+import os  # Added for file/directory operations
+from paddleocr import PaddleOCR
+from typing import List, Optional, Tuple, Any, Union
 
-def ocr_extract(input_img: str, output_file: str):
+# --- NEW TYPE ALIAS ---
+# This list will hold:
+# [0] stem (str)
+# [1] option_a (Optional[str])
+# [2] option_b (Optional[str])
+# [3] option_c (Optional[str])
+# [4] option_d (Optional[str])
+# [5] is_multiple_choice (bool)
+# [6] correct_answer (Optional[str])
+# [7] explanation (Optional[str])
+QuestionData = List[Optional[Union[str, bool]]]
+
+
+def ocr_extract(input_img: str, output_file: str) -> None:
     '''
-    using paddle to fetch image inforamtion
+    Using paddle to fetch image information.
     Args:
-        input_img: Storage path of the photos to be extracted
+        input_img: Storage path of the photos to be extracted.
         output_file: The extracted content will be stored in `JSON` format.
     '''
     if paddle.device.is_compiled_with_cuda():
-        print("使用GPU加速运行...")
+        print(f"Using GPU for acceleration... (Image: {input_img})")
     else:
-        print("使用CPU运行...")
+        print(f"Using CPU... (Image: {input_img})")
 
+    # Initialize OCR
     ocr = PaddleOCR(
-        lang='ch',          # simple china
+        lang='ch',
         use_doc_orientation_classify=False,
         use_doc_unwarping=False,
         use_textline_orientation=False,
-        enable_mkldnn=False  # avoid GPU/CPU model conflact
+        enable_mkldnn=False 
     )
 
-    # 3. running OCR identifaction（keeping predict call）
+    # Run OCR identification
     result = ocr.predict(input=input_img)
 
-    for res in result:
-        res.save_to_json(output_file)
+    # --- REVERTED TO USER'S PREFERENCE ---
+    # Save the result using the .save_to_json() method
+    if result:
+        # Ensure output directory exists before saving
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        for res in result:
+            # This will save the result of the first page (or only page)
+            # and overwrite if multiple pages are in the result.
+            # Assuming one page per image.
+            res.save_to_json(output_file)
+    else:
+        print(f"No OCR result for image: {input_img}")
+
+
+def fetch_image_text(json_file: str) -> List[str]:
+    '''Reads the OCR JSON output and returns a list of text lines.'''
+    try:
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
         
+        # This assumes the .save_to_json() format is the same as the
+        # raw predict() dictionary structure we've seen.
+        rec_texts_list: List[str] = data['rec_texts']
+        
+        # Optional: Save raw text for debugging
+        debug_txt_file = os.path.join(os.path.dirname(json_file), f"{os.path.basename(json_file)}.txt")
+        with open(debug_txt_file, 'w', encoding='utf-8') as f:
+            content_to_write = '\n'.join(rec_texts_list)
+            f.write(content_to_write)
+            
+        return rec_texts_list
+        
+    except FileNotFoundError:
+        print(f"Error: JSON file not found at {json_file}")
+        return []
+    except KeyError:
+        print(f"Error: 'rec_texts' key not found in {json_file}. The JSON structure might be different.")
+        return []
 
-def fetch_image_text(json_file: str) -> list[str]:
-    import json
-    # Use encoding='utf-8' to correctly read the Chinese characters
-    with open(json_file, 'r', encoding='utf-8') as f:
-        # Use json.load() to parse the file object into a dictionary
-        data = json.load(f)
-    rec_texts_list = data['rec_texts']
-    with open('1.text', '+a', encoding='utf-8') as f:
-        content_to_write = '\n'.join(rec_texts_list)
-        f.writelines(content_to_write)
-    # test code
-    # for line in rec_texts_list:
-    #     print(line)
-    return rec_texts_list
 
-
-def structure_questions(text_lines):
+def structure_questions(text_lines: List[str]) -> List[QuestionData]:
     """
     Parses raw OCR text lines into a structured list of questions.
-    
     1. Merges continuation text.
-    2. Structures into [stem, A, B, C, D] lists.
+    2. Structures into an 8-item list per your new format.
+    
+    Returns:
+        List[QuestionData]
     """
     
     # --- 1. Regex Definitions ---
-    
-    # For Pass 1: Detects if a line is a NEW item (question or option)
-    # Used to know if a line is continuation text or not.
     new_item_re = re.compile(r'^(?:\d+\.|[ABCD]\.)\s*')
-    # For Pass 2: Detects a question stem (e.g., "81.")
     question_stem_re = re.compile(r'^\d+\.\s*')
-    # For Pass 2: Detects multiple options in one line
     multi_option_find_re = re.compile(r'[ABCD]\.\s*')
-    # For Pass 2: Splits a line *before* an option, keeping the option
     multi_option_split_re = re.compile(r'(?=[ABCD]\.\s*)')
-    # For Pass 2: Cleans the "A. " prefix from an option
     option_clean_re = re.compile(r'^[ABCD]\.\s*')
     
     # --- 2. Pass 1: Merge Continuation Text ---
-    
-    merged_lines = []
+    merged_lines: List[str] = []
     for line in text_lines:
         line = line.strip()
         if not line:
             continue
         
-        # If the line starts with a number or option, it's a new item.
-        # OR, if it's the very first line, it's also a "new" item.
         if new_item_re.search(line) or not merged_lines:
             merged_lines.append(line)
         else:
-            # This is continuation text. Append it to the *previous* line.
-            merged_lines[-1] += "" + line
+            merged_lines[-1] += " " + line
 
     # --- 3. Pass 2: Structure into Question Lists ---
+    all_questions: List[QuestionData] = []
     
-    all_questions = []
-    current_question_list:list[None | str] = [None] * 5
-    
-    # Helper map to know where to store options
-    # A -> index 1, B -> index 2, etc.
-    option_map = {'A': 1, 'B': 2, 'C': 3, 'D': 4}
+    option_map: dict[str, int] = {'A': 1, 'B': 2, 'C': 3, 'D': 4}
 
-    def store_option(question_list, option_text):
+    def store_option(question_list: QuestionData, option_text: str) -> None:
         """Helper function to clean and store an option in the correct index."""
         option_text = option_text.strip()
         if not option_text:
             return
         
-        # Get the option character (e.g., 'A')
-        option_char = option_text[0]
-        
-        if option_char in option_map:
-            index = option_map[option_char]
-            # Clean the "A. " part from the text
-            clean_text = option_clean_re.sub('', option_text).strip()
-            question_list[index] = clean_text
+        if option_text[0] in option_map:
+            option_char: str = option_text[0]
+            index: int = option_map[option_char]
+            clean_text: str = option_clean_re.sub('', option_text).strip()
+            
+            if 0 <= index < len(question_list):
+                question_list[index] = clean_text
 
     # --- Main Loop for Pass 2 ---
     for line in merged_lines:
-        
-        # Check if this line is a new question stem
         if question_stem_re.search(line):
-            # Create a new list for this question, pre-filled with None
-            current_question_list:list[None | str] = [None] * 5  # [stem, A, B, C, D]
-            
-            # Store the stem (at index 0) after removing the "81. "
-            current_question_list[0] = question_stem_re.sub('', line).strip()
-            
-            # Add our new question list to the final list
+            # --- MODIFIED: Create 8-item list ---
+            stem_text = question_stem_re.sub('', line).strip()
+            # Check for multiple choice keywords
+            is_multi = "multiple selection" in stem_text.lower() or "多选" in stem_text
+
+            current_question_list: QuestionData = [
+                stem_text,  # 0: stem
+                None,       # 1: A
+                None,       # 2: B
+                None,       # 3: C
+                None,       # 4: D
+                is_multi,   # 5: is_multiple_choice
+                'A',        # 6: correct_answer (placeholder)
+                'This is a placeholder explanation.' # 7: explanation (placeholder)
+            ]
             all_questions.append(current_question_list)
         
-        # If it's not a new question, check if it's an option.
-        # We MUST have a question active (current_question_list is not None)
-        elif current_question_list is not None:
+        elif all_questions: # Only process options if a question has been started
+            # This line is potentially an option
+            active_question_list: QuestionData = all_questions[-1] # Get the 8-item list
             
             option_matches = multi_option_find_re.findall(line)
             
             if len(option_matches) >= 2:
-                # Rule 3: Line has multiple options (e.g., "A. ... B. ...")
-                # Split *before* each option (using the lookahead)
-                split_parts = multi_option_split_re.split(line)
+                split_parts: List[str] = multi_option_split_re.split(line)
                 for part in split_parts:
-                    store_option(current_question_list, part)
-            elif len(option_matches) == 1:
-                # Rule 2: Line is a single option (e.g., "A. ...")
-                store_option(current_question_list, line)
-                
-            # If it's not a stem and not an option, it's an 
-            # orphaned line we ignore (since it should have been merged in Pass 1).
-            # This also safely ignores the "C." and "D." lines at the very
-            # beginning of your example, as they appear before a question stem.
+                    store_option(active_question_list, part)
+            elif len(option_matches) == 1 and line.startswith(tuple(option_map.keys())):
+                store_option(active_question_list, line)
             
     return all_questions
 
 
+def create_database(db_file: str) -> None:
+    """
+    Creates an empty SQLite database with the 'questions' table.
+    The schema matches the 8-item QuestionData list.
+    """
+    try:
+        os.makedirs(os.path.dirname(db_file), exist_ok=True)
+        
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        
+        cursor.execute("DROP TABLE IF EXISTS questions")
+        
+        # This schema maps directly to the 8-item list
+        cursor.execute('''
+        CREATE TABLE questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question_stem TEXT NOT NULL,
+            option_a TEXT,
+            option_b TEXT,
+            option_c TEXT,
+            option_d TEXT,
+            is_multiple_choice BOOLEAN NOT NULL DEFAULT 0,
+            correct_answer TEXT,
+            explanation TEXT
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        print(f"Successfully created/reset database: '{db_file}'")
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+
+
+def save_questions_to_db(db_file: str, questions: List[QuestionData]) -> None:
+    """
+    Saves the list of structured (8-item) questions to the SQLite database.
+    """
+    try:
+        conn = sqlite3.connect(db_file)
+        cursor = conn.cursor()
+        
+        for q_list in questions:
+            # --- MODIFIED: q_list is now the 8-item list ---
+            if len(q_list) != 8:
+                print(f"Warning: Skipping malformed question data: {q_list}")
+                continue
+            
+            data_to_insert = tuple(q_list)
+            
+            # The 8 '?' placeholders match the 8 items in QuestionData
+            cursor.execute('''
+            INSERT INTO questions (
+                question_stem, option_a, option_b, option_c, option_d,
+                is_multiple_choice, correct_answer, explanation
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', data_to_insert)
+        
+        conn.commit()
+        conn.close()
+        print(f"Successfully saved {len(questions)} questions to '{db_file}'")
+    except sqlite3.Error as e:
+        print(f"Database error while inserting: {e}")
+
+
 if __name__ == '__main__':
-    # 1. get text inforamtion from image, and
-    ocr_extract('1.jpg', 'output/2_res.json')
     
-    # # 2. Load the Json data
-    rec_texts_list = fetch_image_text('output/1_res.json')
+    # --- Configuration ---
+    CHAPTER_FOLDERS: List[str] = ['chapter1', 'chapter2']
+    IMAGE_BASE_FOLDER: str = 'input_images'
+    JSON_OUTPUT_FOLDER: str = 'output'
+    DB_OUTPUT_FOLDER: str = 'database'
+    
+    os.makedirs(JSON_OUTPUT_FOLDER, exist_ok=True)
+    os.makedirs(DB_OUTPUT_FOLDER, exist_ok=True)
 
-    # # 3. structre questions
-    structured_data = structure_questions(rec_texts_list)
+    # --- Main Processing Loop ---
+    for chapter in CHAPTER_FOLDERS:
+        print(f"\n--- Processing Chapter: {chapter} ---")
+        
+        image_folder: str = os.path.join(IMAGE_BASE_FOLDER, chapter)
+        db_file: str = os.path.join(DB_OUTPUT_FOLDER, f"{chapter}.db")
+        
+        if not os.path.isdir(image_folder):
+            print(f"Warning: Folder not found, skipping: {image_folder}")
+            continue
+            
+        all_structured_data_for_chapter: List[QuestionData] = []
+        
+        image_files: List[str] = [
+            f for f in os.listdir(image_folder) 
+            if f.lower().endswith(('.png', '.jpg', '.jpeg'))
+        ]
+        
+        print(f"Found {len(image_files)} images in {image_folder}")
+        
+        for image_name in image_files:
+            image_path: str = os.path.join(image_folder, image_name)
+            json_file_name: str = f"{chapter}_{os.path.splitext(image_name)[0]}.json"
+            json_output_file: str = os.path.join(JSON_OUTPUT_FOLDER, json_file_name)
+            
+            # 1. Run OCR
+            ocr_extract(image_path, json_output_file)
+            
+            # 2. Load the JSON data
+            rec_texts_list = fetch_image_text(json_output_file)
+            
+            if not rec_texts_list:
+                print(f"  -> No text found in {json_output_file}. Skipping.")
+                continue
+            
+            # 3. Structure questions
+            structured_data = structure_questions(rec_texts_list)
+            
+            print(f"  -> Extracted {len(structured_data)} questions from {image_name}")
+            all_structured_data_for_chapter.extend(structured_data)
 
-    # # 3. Print the results for verification
-    print(f"--- Found {len(structured_data)} questions ---")
-    for i, question in enumerate(structured_data):
-        print(f"\n--- Question {i+1} ---")
-        print(f"{question[0]}")
-        print(f"A: {question[1]}")
-        print(f"B: {question[2]}")
-        print(f"C: {question[3]}")
-        print(f"D: {question[4]}")
+        if not all_structured_data_for_chapter:
+            print(f"No questions extracted for chapter {chapter}. Skipping database creation.")
+            continue
+            
+        # 4. Create the database (this will reset it)
+        print(f"\nCreating database for {chapter}...")
+        create_database(db_file)
+        
+        # 5. Save all extracted questions to the DB
+        print(f"Saving {len(all_structured_data_for_chapter)} total questions to {db_file}...")
+        save_questions_to_db(db_file, all_structured_data_for_chapter)
+
+    print(f"\n--- Batch Process Complete ---")
+    print(f"Databases are located in the '{DB_OUTPUT_FOLDER}' folder.")

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz App</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Simple transition for feedback */
+        .feedback {
+            transition: all 0.3s ease;
+        }
+        /* Custom class for selected option */
+        .selected-option {
+            background-color: #dbeafe; /* Tailwind blue-100 */
+            border-color: #3b82f6; /* Tailwind blue-500 */
+        }
+        /* Class for correct answer */
+        .correct-answer {
+            background-color: #dcfce7; /* Tailwind green-100 */
+            border-color: #22c55e; /* Tailwind green-500 */
+        }
+        /* Class for incorrect answer */
+        .incorrect-answer {
+            background-color: #fee2e2; /* Tailwind red-100 */
+            border-color: #ef4444; /* Tailwind red-500 */
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen font-sans">
+
+    <div id="quiz-container" class="bg-white w-full max-w-3xl rounded-lg shadow-xl p-6 md:p-10">
+        
+        <!-- Loading State -->
+        <div id="loading" class="text-center text-gray-500">
+            <p>Loading questions...</p>
+        </div>
+
+        <!-- Error State -->
+        <div id="error" class="hidden text-center text-red-600">
+            <p id="error-message"></p>
+        </div>
+
+        <!-- Quiz Content (Hidden by default) -->
+        <div id="quiz-content" class="hidden">
+            <!-- Header -->
+            <div class="mb-6">
+                <p id="question-counter" class="text-blue-600 font-semibold"></p>
+                <h2 id="question-stem" class="text-2xl font-bold text-gray-900 mt-2"></h2>
+            </div>
+
+            <!-- Options -->
+            <div id="options-container" class="space-y-4">
+                <!-- Options will be injected here by JS -->
+            </div>
+
+            <!-- Feedback Section -->
+            <div id="feedback-section" class="mt-6 p-4 rounded-md border-2 border-transparent feedback hidden">
+                <h3 id="feedback-title" class="text-lg font-bold"></h3>
+                <p id="feedback-explanation" class="mt-1"></p>
+            </div>
+
+            <!-- Navigation -->
+            <div class="flex justify-end mt-8">
+                <button id="check-button" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-blue-700 transition disabled:bg-gray-300" disabled>
+                    Check Answer
+                </button>
+                <button id="next-button" class="bg-gray-800 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-gray-900 transition hidden ml-4">
+                    Next Question
+                </button>
+            </div>
+        </div>
+
+        <!-- Final Score (Hidden by default) -->
+        <div id="score-container" class="hidden text-center">
+            <h2 class="text-3xl font-bold text-gray-900">Quiz Complete!</h2>
+            <p id="final-score" class="text-xl text-gray-700 mt-4"></p>
+            <button id="restart-button" class="mt-8 bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-blue-700 transition">
+                Restart Quiz
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Get all elements we need
+        const loadingEl = document.getElementById('loading');
+        const errorEl = document.getElementById('error');
+        const errorMessageEl = document.getElementById('error-message');
+        const quizContentEl = document.getElementById('quiz-content');
+        const scoreContainerEl = document.getElementById('score-container');
+
+        const questionCounterEl = document.getElementById('question-counter');
+        const questionStemEl = document.getElementById('question-stem');
+        const optionsContainerEl = document.getElementById('options-container');
+        
+        const feedbackSectionEl = document.getElementById('feedback-section');
+        const feedbackTitleEl = document.getElementById('feedback-title');
+        const feedbackExplanationEl = document.getElementById('feedback-explanation');
+        
+        const checkButton = document.getElementById('check-button');
+        const nextButton = document.getElementById('next-button');
+        const finalScoreEl = document.getElementById('final-score');
+        const restartButton = document.getElementById('restart-button');
+
+        // App state
+        let allQuestions = [];
+        let currentQuestionIndex = 0;
+        let selectedOption = null; // 'A', 'B', 'C', or 'D'
+        let score = 0;
+
+        /**
+         * 1. Load Questions from API
+         */
+        async function loadQuestions() {
+            try {
+                const response = await fetch('/api/questions');
+                if (!response.ok) {
+                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                }
+                allQuestions = await response.json();
+                
+                if (allQuestions.length === 0) {
+                    throw new Error('No questions were returned from the server.');
+                }
+
+                // Hide loading, show quiz
+                loadingEl.classList.add('hidden');
+                quizContentEl.classList.remove('hidden');
+                displayQuestion();
+
+            } catch (err) {
+                // Show error
+                loadingEl.classList.add('hidden');
+                errorMessageEl.textContent = `Failed to load questions. Please try again. (Details: ${err.message})`;
+                errorEl.classList.remove('hidden');
+            }
+        }
+
+        /**
+         * 2. Display the current question
+         */
+        function displayQuestion() {
+            const question = allQuestions[currentQuestionIndex];
+            
+            // Reset state
+            selectedOption = null;
+            feedbackSectionEl.classList.add('hidden');
+            checkButton.classList.remove('hidden');
+            checkButton.disabled = true;
+            nextButton.classList.add('hidden');
+            optionsContainerEl.innerHTML = ''; // Clear old options
+
+            // Set question text
+            questionCounterEl.textContent = `Question ${currentQuestionIndex + 1} of ${allQuestions.length}`;
+            questionStemEl.textContent = question.question_stem;
+
+            // Create option buttons
+            const options = [
+                { key: 'A', text: question.option_a },
+                { key: 'B', text: question.option_b },
+                { key: 'C', text: question.option_c },
+                { key: 'D', text: question.option_d },
+            ];
+
+            options.forEach(option => {
+                if (option.text) { // Only create a button if the option exists
+                    const button = document.createElement('button');
+                    button.className = 'w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-blue-400 transition';
+                    button.textContent = `${option.key}. ${option.text}`;
+                    
+                    // Set data attribute for the key ('A', 'B', 'C', 'D')
+                    button.dataset.optionKey = option.key;
+
+                    button.addEventListener('click', () => selectOption(button, option.key));
+                    optionsContainerEl.appendChild(button);
+                }
+            });
+        }
+
+        /**
+         * 3. Handle Option Selection
+         */
+        function selectOption(selectedButton, optionKey) {
+            // Remove 'selected-option' from all buttons
+            Array.from(optionsContainerEl.children).forEach(btn => {
+                btn.classList.remove('selected-option');
+            });
+
+            // Add 'selected-option' to the clicked button
+            selectedButton.classList.add('selected-option');
+            
+            selectedOption = optionKey;
+            checkButton.disabled = false;
+        }
+
+        /**
+         * 4. Check the Answer
+         */
+        async function checkAnswer() {
+            if (!selectedOption) return;
+
+            const question = allQuestions[currentQuestionIndex];
+            
+            try {
+                const response = await fetch(`/api/check_answer/${question.id}/${selectedOption}`);
+                if (!response.ok) {
+                    throw new Error('Server error checking answer.');
+                }
+                const result = await response.json();
+
+                // Disable all option buttons
+                Array.from(optionsContainerEl.children).forEach(btn => {
+                    btn.disabled = true;
+                    btn.classList.remove('hover:border-blue-400');
+                });
+                
+                // Show feedback
+                feedbackSectionEl.classList.remove('hidden');
+                feedbackExplanationEl.textContent = result.explanation;
+
+                const selectedButton = optionsContainerEl.querySelector(`[data-option-key="${selectedOption}"]`);
+                const correctButton = optionsContainerEl.querySelector(`[data-option-key="${result.correct_answer}"]`);
+
+                if (result.is_correct) {
+                    score++;
+                    feedbackTitleEl.textContent = "Correct!";
+                    feedbackTitleEl.className = "text-lg font-bold text-green-700";
+                    selectedButton.classList.add('correct-answer');
+                    selectedButton.classList.remove('selected-option');
+                } else {
+                    feedbackTitleEl.textContent = "Incorrect";
+                    feedbackTitleEl.className = "text-lg font-bold text-red-700";
+                    if (selectedButton) {
+                        selectedButton.classList.add('incorrect-answer');
+                        selectedButton.classList.remove('selected-option');
+                    }
+                    if (correctButton) {
+                        correctButton.classList.add('correct-answer');
+                    }
+                }
+
+                // Toggle buttons
+                checkButton.classList.add('hidden');
+                nextButton.classList.remove('hidden');
+
+            } catch (err) {
+                alert(`Error checking answer: ${err.message}`);
+            }
+        }
+
+        /**
+         * 5. Go to Next Question
+         */
+        function nextQuestion() {
+            currentQuestionIndex++;
+            if (currentQuestionIndex < allQuestions.length) {
+                displayQuestion();
+            } else {
+                showFinalScore();
+            }
+        }
+
+        /**
+         * 6. Show Final Score
+         */
+        function showFinalScore() {
+            quizContentEl.classList.add('hidden');
+            scoreContainerEl.classList.remove('hidden');
+            finalScoreEl.textContent = `You got ${score} out of ${allQuestions.length} questions correct.`;
+        }
+
+        /**
+         * 7. Restart Quiz
+         */
+        function restartQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            scoreContainerEl.classList.add('hidden');
+            quizContentEl.classList.remove('hidden');
+            loadQuestions(); // Re-fetch and start over
+        }
+
+        // --- Add Event Listeners ---
+        checkButton.addEventListener('click', checkAnswer);
+        nextButton.addEventListener('click', nextQuestion);
+        restartButton.addEventListener('click', restartQuiz);
+
+        // --- Start the App ---
+        document.addEventListener('DOMContentLoaded', loadQuestions);
+    </script>
+</body>
+</html>
