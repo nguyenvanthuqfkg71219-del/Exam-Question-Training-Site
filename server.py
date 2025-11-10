@@ -1,4 +1,5 @@
 import sqlite3
+import os  # Import os to securely build file paths
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from typing import List, Dict, Any, Optional
@@ -7,18 +8,18 @@ from typing import List, Dict, Any, Optional
 Question = Dict[str, Any]
 
 app = FastAPI()
-DB_FILE = 'questions.db'
 
-def fetch_questions_from_db() -> List[Question]:
+def fetch_questions_from_db(db_file: str) -> List[Question]:
     """Fetches all questions and formats them as dictionaries."""
     questions = []
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = sqlite3.connect(db_file)
         # .row_factory makes the cursor return dictionaries instead of tuples
         conn.row_factory = sqlite3.Row 
         cursor = conn.cursor()
         
-        cursor.execute("SELECT id, question_stem, option_a, option_b, option_c, option_d FROM questions")
+        # Select the new 'is_multiple_choice' column
+        cursor.execute("SELECT id, question_stem, option_a, option_b, option_c, option_d, is_multiple_choice FROM questions")
         rows = cursor.fetchall()
         
         for row in rows:
@@ -28,13 +29,12 @@ def fetch_questions_from_db() -> List[Question]:
         return questions
     except sqlite3.Error as e:
         print(f"Database error: {e}")
-        # If the front-end gets an empty list, it will handle it
         return []
 
-def check_answer_in_db(question_id: int) -> Optional[Dict[str, str]]:
+def check_answer_in_db(db_file: str, question_id: int) -> Optional[Dict[str, str]]:
     """Fetches the correct answer and explanation for a single question."""
     try:
-        conn = sqlite3.connect(DB_FILE)
+        conn = sqlite3.connect(db_file)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
@@ -54,22 +54,37 @@ def check_answer_in_db(question_id: int) -> Optional[Dict[str, str]]:
         return None
 
 # API Endpoint 1: Get all questions
-@app.get("/api/questions")
-async def get_questions():
-    questions = fetch_questions_from_db()
+@app.get("/api/questions/{chapter}")
+async def get_questions(chapter: str):
+    # This path is correct relative to where server.py is run
+    db_file = os.path.join('database', f"{chapter}.db")
+    
+    if not os.path.exists(db_file):
+        raise HTTPException(status_code=404, detail="Database file not found for this chapter.")
+        
+    questions = fetch_questions_from_db(db_file)
     if not questions:
         raise HTTPException(status_code=404, detail="No questions found. Did you run main.py?")
     return questions
 
 # API Endpoint 2: Check an answer
-@app.get("/api/check_answer/{question_id}/{selected_option}")
-async def check_answer(question_id: int, selected_option: str):
-    result = check_answer_in_db(question_id)
+@app.get("/api/check_answer/{chapter}/{question_id}/{selected_option}")
+async def check_answer(chapter: str, question_id: int, selected_option: str):
+    db_file = os.path.join('database', f"{chapter}.db")
+
+    if not os.path.exists(db_file):
+        raise HTTPException(status_code=404, detail="Database file not found for this chapter.")
+
+    result = check_answer_in_db(db_file, question_id)
     
     if not result:
         raise HTTPException(status_code=404, detail="Question ID not found.")
-        
-    is_correct = (selected_option.upper() == result["correct_answer"].upper())
+    
+    # Handle single and multiple-choice answers
+    user_parts = sorted(selected_option.upper().split(','))
+    correct_parts = sorted(result["correct_answer"].upper().split(','))
+
+    is_correct = (user_parts == correct_parts)
     
     return {
         "is_correct": is_correct,
@@ -77,7 +92,11 @@ async def check_answer(question_id: int, selected_option: str):
         "explanation": result["explanation"]
     }
 
-# Main Endpoint: Serve the HTML front-end
+# --- THIS IS THE ONLY CHANGE ---
+# Main Endpoint: Serve the HTML front-end from the 'Client' folder
 @app.get("/")
 async def get_index():
-    return FileResponse('./Client/index.html')
+    html_file_path = os.path.join('Client', 'index.html')
+    if not os.path.exists(html_file_path):
+        raise HTTPException(status_code=404, detail="index.html not found in Client folder.")
+    return FileResponse(html_file_path)

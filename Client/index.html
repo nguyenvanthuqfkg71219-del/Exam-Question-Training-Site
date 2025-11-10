@@ -32,8 +32,21 @@
 
     <div id="quiz-container" class="bg-white w-full max-w-3xl rounded-lg shadow-xl p-6 md:p-10">
         
+        <!-- Chapter Selection -->
+        <div id="chapter-selection" class="text-center">
+            <h1 class="text-3xl font-bold text-gray-900 mb-6">Select a Chapter</h1>
+            <div class="space-y-4">
+                <button onclick="startQuiz('chapter1')" class="w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-lg shadow hover:bg-blue-700 transition">
+                    Chapter 1
+                </button>
+                <button onclick="startQuiz('chapter2')" class="w-full bg-green-600 text-white font-bold py-3 px-6 rounded-lg shadow hover:bg-green-700 transition">
+                    Chapter 2
+                </button>
+            </div>
+        </div>
+
         <!-- Loading State -->
-        <div id="loading" class="text-center text-gray-500">
+        <div id="loading" class="hidden text-center text-gray-500">
             <p>Loading questions...</p>
         </div>
 
@@ -62,13 +75,18 @@
             </div>
 
             <!-- Navigation -->
-            <div class="flex justify-end mt-8">
-                <button id="check-button" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-blue-700 transition disabled:bg-gray-300" disabled>
-                    Check Answer
+            <div class="flex justify-between items-center mt-8">
+                <button id="back-to-menu" class="text-gray-600 hover:text-blue-600 font-medium transition">
+                    &larr; Back to Menu
                 </button>
-                <button id="next-button" class="bg-gray-800 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-gray-900 transition hidden ml-4">
-                    Next Question
-                </button>
+                <div>
+                    <button id="check-button" class="bg-blue-600 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-blue-700 transition disabled:bg-gray-300" disabled>
+                        Check Answer
+                    </button>
+                    <button id="next-button" class="bg-gray-800 text-white font-bold py-2 px-6 rounded-lg shadow hover:bg-gray-900 transition hidden ml-4">
+                        Next Question
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -84,9 +102,11 @@
 
     <script>
         // Get all elements we need
+        const chapterSelectionEl = document.getElementById('chapter-selection');
         const loadingEl = document.getElementById('loading');
         const errorEl = document.getElementById('error');
         const errorMessageEl = document.getElementById('error-message');
+        const quizContainerEl = document.getElementById('quiz-container');
         const quizContentEl = document.getElementById('quiz-content');
         const scoreContainerEl = document.getElementById('score-container');
 
@@ -102,27 +122,48 @@
         const nextButton = document.getElementById('next-button');
         const finalScoreEl = document.getElementById('final-score');
         const restartButton = document.getElementById('restart-button');
+        const backToMenuButton = document.getElementById('back-to-menu');
 
         // App state
         let allQuestions = [];
         let currentQuestionIndex = 0;
-        let selectedOption = null; // 'A', 'B', 'C', or 'D'
+        let selectedOptions = []; // --- MODIFIED: Was selectedOption, now an array ---
         let score = 0;
+        let currentChapter = '';
+
+        /**
+         * 0. Start Quiz
+         */
+        function startQuiz(chapter) {
+            currentChapter = chapter;
+            chapterSelectionEl.classList.add('hidden');
+            loadingEl.classList.remove('hidden');
+            errorEl.classList.add('hidden');
+            quizContentEl.classList.add('hidden');
+            scoreContainerEl.classList.add('hidden');
+            loadQuestions();
+        }
 
         /**
          * 1. Load Questions from API
          */
         async function loadQuestions() {
             try {
-                const response = await fetch('/api/questions');
+                // --- MODIFIED: Use dynamic chapter ---
+                const response = await fetch(`/api/questions/${currentChapter}`);
                 if (!response.ok) {
-                    throw new Error(`Error: ${response.status} ${response.statusText}`);
+                    const errData = await response.json();
+                    throw new Error(errData.detail || `Error: ${response.status} ${response.statusText}`);
                 }
                 allQuestions = await response.json();
                 
                 if (allQuestions.length === 0) {
                     throw new Error('No questions were returned from the server.');
                 }
+
+                // Reset quiz state
+                currentQuestionIndex = 0;
+                score = 0;
 
                 // Hide loading, show quiz
                 loadingEl.classList.add('hidden');
@@ -134,6 +175,8 @@
                 loadingEl.classList.add('hidden');
                 errorMessageEl.textContent = `Failed to load questions. Please try again. (Details: ${err.message})`;
                 errorEl.classList.remove('hidden');
+                // Show a button to go back
+                errorMessageEl.innerHTML += `<br><button onclick="showMenu()" class="mt-4 text-blue-600">Back to Menu</button>`;
             }
         }
 
@@ -144,16 +187,20 @@
             const question = allQuestions[currentQuestionIndex];
             
             // Reset state
-            selectedOption = null;
+            selectedOptions = []; // --- MODIFIED: Reset array ---
             feedbackSectionEl.classList.add('hidden');
             checkButton.classList.remove('hidden');
             checkButton.disabled = true;
             nextButton.classList.add('hidden');
             optionsContainerEl.innerHTML = ''; // Clear old options
 
-            // Set question text
+            // --- MODIFIED: Check for multiple choice and add badge ---
+            const isMultiple = question.is_multiple_choice;
             questionCounterEl.textContent = `Question ${currentQuestionIndex + 1} of ${allQuestions.length}`;
-            questionStemEl.textContent = question.question_stem;
+            questionStemEl.innerHTML = question.question_stem; // Use innerHTML
+            if (isMultiple) {
+                questionStemEl.innerHTML += ' <span class="text-sm font-normal text-blue-500">(Multiple Choice)</span>';
+            }
 
             // Create option buttons
             const options = [
@@ -168,11 +215,10 @@
                     const button = document.createElement('button');
                     button.className = 'w-full text-left p-4 rounded-lg border-2 border-gray-200 hover:border-blue-400 transition';
                     button.textContent = `${option.key}. ${option.text}`;
-                    
-                    // Set data attribute for the key ('A', 'B', 'C', 'D')
                     button.dataset.optionKey = option.key;
 
-                    button.addEventListener('click', () => selectOption(button, option.key));
+                    // --- MODIFIED: Pass isMultiple flag to selectOption ---
+                    button.addEventListener('click', () => selectOption(button, option.key, isMultiple));
                     optionsContainerEl.appendChild(button);
                 }
             });
@@ -181,36 +227,56 @@
         /**
          * 3. Handle Option Selection
          */
-        function selectOption(selectedButton, optionKey) {
-            // Remove 'selected-option' from all buttons
-            Array.from(optionsContainerEl.children).forEach(btn => {
-                btn.classList.remove('selected-option');
-            });
-
-            // Add 'selected-option' to the clicked button
-            selectedButton.classList.add('selected-option');
+        function selectOption(selectedButton, optionKey, isMultiple) {
             
-            selectedOption = optionKey;
-            checkButton.disabled = false;
+            if (isMultiple) {
+                // --- Multiple choice logic (toggle) ---
+                const index = selectedOptions.indexOf(optionKey);
+                if (index > -1) {
+                    // Already selected, de-select it
+                    selectedOptions.splice(index, 1);
+                    selectedButton.classList.remove('selected-option');
+                } else {
+                    // Not selected, select it
+                    selectedOptions.push(optionKey);
+                    selectedButton.classList.add('selected-option');
+                }
+            } else {
+                // --- Single choice logic (radio button) ---
+                selectedOptions = [optionKey];
+                // Remove 'selected-option' from all buttons
+                Array.from(optionsContainerEl.children).forEach(btn => {
+                    btn.classList.remove('selected-option');
+                });
+                // Add 'selected-option' to the clicked button
+                selectedButton.classList.add('selected-option');
+            }
+            
+            // Enable or disable check button
+            checkButton.disabled = selectedOptions.length === 0;
         }
 
         /**
          * 4. Check the Answer
          */
         async function checkAnswer() {
-            if (!selectedOption) return;
+            if (selectedOptions.length === 0) return;
 
             const question = allQuestions[currentQuestionIndex];
+            // --- MODIFIED: Join and sort options to send ---
+            const optionsToSend = selectedOptions.sort().join(',');
             
             try {
-                const response = await fetch(`/api/check_answer/${question.id}/${selectedOption}`);
+                // --- MODIFIED: Use dynamic chapter and new options string ---
+                const response = await fetch(`/api/check_answer/${currentChapter}/${question.id}/${optionsToSend}`);
                 if (!response.ok) {
                     throw new Error('Server error checking answer.');
                 }
                 const result = await response.json();
 
                 // Disable all option buttons
-                Array.from(optionsContainerEl.children).forEach(btn => {
+                const allOptionButtons = Array.from(optionsContainerEl.children);
+                allOptionButtons.forEach(btn => {
                     btn.disabled = true;
                     btn.classList.remove('hover:border-blue-400');
                 });
@@ -219,25 +285,35 @@
                 feedbackSectionEl.classList.remove('hidden');
                 feedbackExplanationEl.textContent = result.explanation;
 
-                const selectedButton = optionsContainerEl.querySelector(`[data-option-key="${selectedOption}"]`);
-                const correctButton = optionsContainerEl.querySelector(`[data-option-key="${result.correct_answer}"]`);
+                // --- MODIFIED: Highlighting for multiple choice ---
+                const correctAnswers = result.correct_answer.split(',');
 
                 if (result.is_correct) {
                     score++;
                     feedbackTitleEl.textContent = "Correct!";
                     feedbackTitleEl.className = "text-lg font-bold text-green-700";
-                    selectedButton.classList.add('correct-answer');
-                    selectedButton.classList.remove('selected-option');
+                    // All selected options are correct
+                    selectedOptions.forEach(key => {
+                        const btn = optionsContainerEl.querySelector(`[data-option-key="${key}"]`);
+                        if (btn) btn.classList.add('correct-answer');
+                    });
                 } else {
                     feedbackTitleEl.textContent = "Incorrect";
                     feedbackTitleEl.className = "text-lg font-bold text-red-700";
-                    if (selectedButton) {
-                        selectedButton.classList.add('incorrect-answer');
-                        selectedButton.classList.remove('selected-option');
-                    }
-                    if (correctButton) {
-                        correctButton.classList.add('correct-answer');
-                    }
+                    
+                    // Highlight all correct answers
+                    correctAnswers.forEach(key => {
+                        const btn = optionsContainerEl.querySelector(`[data-option-key="${key}"]`);
+                        if (btn) btn.classList.add('correct-answer');
+                    });
+                    
+                    // Highlight any selected answers that were wrong
+                    selectedOptions.forEach(key => {
+                        if (!correctAnswers.includes(key)) {
+                            const btn = optionsContainerEl.querySelector(`[data-option-key="${key}"]`);
+                            if (btn) btn.classList.add('incorrect-answer');
+                        }
+                    });
                 }
 
                 // Toggle buttons
@@ -269,25 +345,37 @@
             scoreContainerEl.classList.remove('hidden');
             finalScoreEl.textContent = `You got ${score} out of ${allQuestions.length} questions correct.`;
         }
+        
+        /**
+         * 7. Show Menu (Go Back)
+         */
+         function showMenu() {
+            quizContentEl.classList.add('hidden');
+            scoreContainerEl.classList.add('hidden');
+            errorEl.classList.add('hidden');
+            loadingEl.classList.add('hidden');
+            chapterSelectionEl.classList.remove('hidden');
+         }
 
         /**
-         * 7. Restart Quiz
+         * 8. Restart Quiz (for current chapter)
          */
         function restartQuiz() {
-            currentQuestionIndex = 0;
-            score = 0;
             scoreContainerEl.classList.add('hidden');
-            quizContentEl.classList.remove('hidden');
-            loadQuestions(); // Re-fetch and start over
+            loadingEl.classList.remove('hidden');
+            // Re-use the currentChapter
+            loadQuestions();
         }
 
         // --- Add Event Listeners ---
         checkButton.addEventListener('click', checkAnswer);
         nextButton.addEventListener('click', nextQuestion);
         restartButton.addEventListener('click', restartQuiz);
+        backToMenuButton.addEventListener('click', showMenu);
 
         // --- Start the App ---
-        document.addEventListener('DOMContentLoaded', loadQuestions);
+        // Don't load questions immediately, wait for user to select chapter.
+        // document.addEventListener('DOMContentLoaded', loadQuestions);
     </script>
 </body>
 </html>
