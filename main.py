@@ -4,7 +4,7 @@ import json
 import sqlite3
 import os  # Added for file/directory operations
 from paddleocr import PaddleOCR
-from typing import List, Optional, Tuple, Any, Union
+from typing import Optional, Union
 
 # --- NEW TYPE ALIAS ---
 # This list will hold:
@@ -16,7 +16,7 @@ from typing import List, Optional, Tuple, Any, Union
 # [5] is_multiple_choice (bool)
 # [6] correct_answer (Optional[str])
 # [7] explanation (Optional[str])
-QuestionData = List[Optional[Union[str, bool]]]
+QuestionData = list[Optional[Union[str, bool]]]
 
 
 def ocr_extract(input_img: str, output_file: str) -> None:
@@ -57,7 +57,7 @@ def ocr_extract(input_img: str, output_file: str) -> None:
         print(f"No OCR result for image: {input_img}")
 
 
-def fetch_image_text(json_file: str) -> List[str]:
+def fetch_image_text(json_file: str) -> list[str]:
     '''Reads the OCR JSON output and returns a list of text lines.'''
     try:
         with open(json_file, 'r', encoding='utf-8') as f:
@@ -65,7 +65,7 @@ def fetch_image_text(json_file: str) -> List[str]:
         
         # This assumes the .save_to_json() format is the same as the
         # raw predict() dictionary structure we've seen.
-        rec_texts_list: List[str] = data['rec_texts']
+        rec_texts_list: list[str] = data['rec_texts']
         
         # Optional: Save raw text for debugging
         debug_txt_file = os.path.join(os.path.dirname(json_file), f"{os.path.basename(json_file)}.txt")
@@ -83,14 +83,14 @@ def fetch_image_text(json_file: str) -> List[str]:
         return []
 
 
-def structure_questions(text_lines: List[str]) -> List[QuestionData]:
+def structure_questions(text_lines: list[str]) -> list[QuestionData]:
     """
     Parses raw OCR text lines into a structured list of questions.
     1. Merges continuation text.
     2. Structures into an 8-item list per your new format.
     
     Returns:
-        List[QuestionData]
+        list[QuestionData]
     """
     
     # --- 1. Regex Definitions ---
@@ -101,7 +101,7 @@ def structure_questions(text_lines: List[str]) -> List[QuestionData]:
     option_clean_re = re.compile(r'^[ABCD]\.\s*')
     
     # --- 2. Pass 1: Merge Continuation Text ---
-    merged_lines: List[str] = []
+    merged_lines: list[str] = []
     for line in text_lines:
         line = line.strip()
         if not line:
@@ -110,10 +110,10 @@ def structure_questions(text_lines: List[str]) -> List[QuestionData]:
         if new_item_re.search(line) or not merged_lines:
             merged_lines.append(line)
         else:
-            merged_lines[-1] += " " + line
+            merged_lines[-1] += "" + line
 
-    # --- 3. Pass 2: Structure into Question Lists ---
-    all_questions: List[QuestionData] = []
+    # --- 3. Pass 2: Structure into Question lists ---
+    all_questions: list[QuestionData] = []
     
     option_map: dict[str, int] = {'A': 1, 'B': 2, 'C': 3, 'D': 4}
 
@@ -158,7 +158,7 @@ def structure_questions(text_lines: List[str]) -> List[QuestionData]:
             option_matches = multi_option_find_re.findall(line)
             
             if len(option_matches) >= 2:
-                split_parts: List[str] = multi_option_split_re.split(line)
+                split_parts: list[str] = multi_option_split_re.split(line)
                 for part in split_parts:
                     store_option(active_question_list, part)
             elif len(option_matches) == 1 and line.startswith(tuple(option_map.keys())):
@@ -202,7 +202,7 @@ def create_database(db_file: str) -> None:
         print(f"Database error: {e}")
 
 
-def save_questions_to_db(db_file: str, questions: List[QuestionData]) -> None:
+def save_questions_to_db(db_file: str, questions: list[QuestionData]) -> None:
     """
     Saves the list of structured (8-item) questions to the SQLite database.
     """
@@ -236,7 +236,7 @@ def save_questions_to_db(db_file: str, questions: List[QuestionData]) -> None:
 if __name__ == '__main__':
     
     # --- Configuration ---
-    CHAPTER_FOLDERS: List[str] = ['chapter1', 'chapter2']
+    CHAPTER_FOLDERS: list[str] = ['chapter1', 'chapter2']
     IMAGE_BASE_FOLDER: str = 'input_images'
     JSON_OUTPUT_FOLDER: str = 'output'
     DB_OUTPUT_FOLDER: str = 'database'
@@ -255,9 +255,9 @@ if __name__ == '__main__':
             print(f"Warning: Folder not found, skipping: {image_folder}")
             continue
             
-        all_structured_data_for_chapter: List[QuestionData] = []
+        all_structured_data_for_chapter: list[QuestionData] = []
         
-        image_files: List[str] = [
+        image_files: list[str] = [
             f for f in os.listdir(image_folder) 
             if f.lower().endswith(('.png', '.jpg', '.jpeg'))
         ]
