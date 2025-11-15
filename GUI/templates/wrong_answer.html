@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}我的错题{% endblock %}
+
+{% block content %}
+<h1>我的错题集</h1>
+{% if wrong_answers %}
+    {% for wa in wrong_answers %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <p><strong>题目:</strong> {{ wa.question_text }}</p>
+            <p><strong>你的选择:</strong> {{ wa.selected_answer }}</p>
+            <p><strong>正确答案:</strong> {{ wa.correct_answer }}</p>
+            <small class="text-muted">记录时间: {{ wa.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+        </div>
+    </div>
+    {% endfor %}
+{% else %}
+    <div class="alert alert-info">恭喜！暂无错题。</div>
+{% endif %}
+{% endblock %}

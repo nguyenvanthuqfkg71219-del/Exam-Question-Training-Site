@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}答题{% endblock %}
+
+{% block content %}
+<h1>开始答题</h1>
+<form action="{{ url_for('submit_answer') }}" method="post">
+    {% for idx, question in enumerate(questions) %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">{{ loop.index }}. {{ question['题目'] }}</h5>
+            {% set options = {'A': question['A'], 'B': question['B'], 'C': question['C'], 'D': question['D']} %}
+            {% for key, value in options.items() %}
+                <div class="form-check">
+                    {% if question['是否多选'] == True or question['是否多选'] == 'TRUE' %}
+                        <input class="form-check-input" type="checkbox" name="answer_{{ idx }}" value="{{ key }}" id="q{{ idx }}_{{ key }}">
+                    {% else %}
+                        <input class="form-check-input" type="radio" name="answer_{{ idx }}" value="{{ key }}" id="q{{ idx }}_{{ key }}">
+                    {% endif %}
+                    <label class="form-check-label" for="q{{ idx }}_{{ key }}">
+                        <strong>{{ key }}.</strong> {{ value }}
+                    </label>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    
+    <button type="submit" class="btn btn-success">提交答案</button>
+</form>
+{% endblock %}

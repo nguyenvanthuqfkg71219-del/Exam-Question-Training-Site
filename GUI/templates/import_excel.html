@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}导入Excel题目{% endblock %}
+
+{% block content %}
+<h1>导入Excel题目</h1>
+<form method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+        <label for="excel_file" class="form-label">选择Excel文件</label>
+        <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls" required>
+        <small class="form-text text-muted">请确保文件格式与示例一致。</small>
+    </div>
+    <button type="submit" class="btn btn-primary">开始导入</button>
+</form>
+{% endblock %}
