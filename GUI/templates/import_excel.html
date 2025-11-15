@@ -1,23 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Import Excel Quiz{% endblock %}
 
 {% block content %}
-<h1>Import Excel Quiz</h1>
-<form method="post" enctype="multipart/form-data">
-    <!-- NEW: Added field for Set Name -->
-    <div class="mb-3">
-        <label for="set_name" class="form-label">Question Set Name</label>
-        <input class="form-control" type="text" id="set_name" name="set_name" placeholder="E.g., Chapter 1 Review" required>
-        <small class="form-text text-muted">Give this quiz set a unique name.</small>
-    </div>
-
-    <div class="mb-3">
-        <label for="excel_file" class="form-label">Select Excel File</label>
-        <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls" required>
-        <small class="form-text text-muted">Ensure the file has columns: 题目, A, B, C, D, 是否多选, 正确答案</small>
-    </div>
-    <button type="submit" class="btn btn-primary">
-        <i class="fas fa-upload"></i> Start Import
-    </button>
-</form>
+<div class="form-container">
+    <h2>Import Questions from Excel</h2>
+    <p>Upload an .xlsx file with columns: 题目, A, B, C, D, 正确答案, 是否多选</p>
+    
+    <!-- 
+      FIXED: Added enctype="multipart/form-data"
+      This is required for all forms that upload files.
+    -->
+    <form method="POST" enctype="multipart/form-data" action="{{ url_for('import_excel') }}">
+        <div class="form-group">
+            <label for="file">Excel File (.xlsx)</label>
+            <input type="file" id="file" name="file" class="form-control-file" accept=".xlsx, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        </div>
+        <button type="submit" class="button">Upload</button>
+    </form>
+</div>
 {% endblock %}

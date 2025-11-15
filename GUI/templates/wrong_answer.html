@@ -1,26 +1,50 @@
 {% extends "base.html" %}
-{% block title %}Wrong Answers - {{ question_set.name }}{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h1>Wrong Answers for "{{ question_set.name }}"</h1>
-    <a href="{{ url_for('view_wrong_answer_sets') }}" class="btn btn-secondary">
-        <i class="fas fa-arrow-left"></i> Back to List
-    </a>
-</div>
+<div class="wrong-answer-container">
+    <h2>Wrong Answers from {{ set_timestamp.strftime('%Y-%m-%d %H:%M') }}</h2>
+    <a href="{{ url_for('wrong_answer_sets') }}" class="button">&larr; Back to All Sets</a>
 
-{% if wrong_answers %}
-    {% for wa in wrong_answers %}
-    <div class="card mb-3">
-        <div class="card-body">
-            <p><strong>Question:</strong> {{ wa.question_text }}</p>
-            <p class="text-danger"><strong>Your Answer:</strong> {{ wa.selected_answer or "No Answer" }}</p>
-            <p class="text-success"><strong>Correct Answer:</strong> {{ wa.correct_answer }}</p>
-            <small class="text-muted">Recorded: {{ wa.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+    {% for wrong_answer in wrong_answers %}
+    <div class="wrong-answer-item">
+        <h4>{{ loop.index }}. {{ wrong_answer.question.question_text }}</h4>
+        
+        <!-- MODIFIED: Add a note for multiple choice questions -->
+        {% if wrong_answer.question.is_multiple_choice %}
+            <p class="multi-choice-note">(Multiple-choice question)</p>
+        {% endif %}
+
+        {% set options = [
+            {'value': 'A', 'text': wrong_answer.question.option_a},
+            {'value': 'B', 'text': wrong_answer.question.option_b},
+            {'value': 'C', 'text': wrong_answer.question.option_c},
+            {'value': 'D', 'text': wrong_answer.question.option_d}
+        ] %}
+        
+        <div class="options-container">
+            {% for option in options %}
+                <!-- MODIFIED: Logic to handle multiple choice answers -->
+                {% set is_correct = option.value in wrong_answer.question.correct_answer %}
+                {% set is_selected = option.value in wrong_answer.selected_answer %}
+            
+                <div class="option 
+                    {% if is_correct %}correct{% endif %}
+                    {% if is_selected and not is_correct %}incorrect{% endif %}
+                ">
+                    {{ option.value }}. {{ option.text }}
+                </div>
+            {% endfor %}
         </div>
+
+        <p class="answer-key">
+            <strong>Your Answer:</strong> 
+            <span class="user-answer">{{ wrong_answer.selected_answer if wrong_answer.selected_answer else 'No Answer' }}</span>
+        </p>
+        <p class="answer-key">
+            <strong>Correct Answer:</strong> 
+            <span class="correct-answer">{{ wrong_answer.question.correct_answer }}</span>
+        </p>
     </div>
     {% endfor %}
-{% else %}
-    <div class="alert alert-info">Congratulations! No wrong answers for this set.</div>
-{% endif %}
+</div>
 {% endblock %}

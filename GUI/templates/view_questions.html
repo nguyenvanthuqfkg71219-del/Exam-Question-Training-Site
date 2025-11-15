@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>我的题库 (共 {{ questions|length }} 道题)</h2>
+
+    <div class="question-list">
+        {% for question in questions %}
+            <!-- We reuse the style from .wrong-answer-item for consistency -->
+            <div class="wrong-answer-item">
+                <h4>{{ loop.index }}. {{ question.question_text }}</h4>
+                
+                {% if question.is_multiple_choice %}
+                    <p class="multi-choice-note">(多选题)</p>
+                {% endif %}
+
+                <!-- Display all options, highlighting the correct one(s) -->
+                <div class="options-container">
+                    <div class="option {% if 'A' in question.correct_answer %}correct{% endif %}">
+                        A. {{ question.option_a }}
+                    </div>
+                    <div class="option {% if 'B' in question.correct_answer %}correct{% endif %}">
+                        B. {{ question.option_b }}
+                    </div>
+                    <div class="option {% if 'C' in question.correct_answer %}correct{% endif %}">
+                        C. {{ question.option_c }}
+                    </div>
+                    <div class="option {% if 'D' in question.correct_answer %}correct{% endif %}">
+                        D. {{ question.option_d }}
+                    </div>
+                </div>
+
+                <p class="answer-key">
+                    <strong>正确答案:</strong> 
+                    <span class="correct-answer">{{ question.correct_answer }}</span>
+                </p>
+            </div>
+        {% else %}
+            <!-- Show a message if no questions are found -->
+            <div class="form-container">
+                <p>你的题库是空的！</p>
+                <a href="{{ url_for('import_excel') }}" class="button">立即上传题目</a>
+            </div>
+        {% endfor %}
+    </div>
+{% endblock %}
