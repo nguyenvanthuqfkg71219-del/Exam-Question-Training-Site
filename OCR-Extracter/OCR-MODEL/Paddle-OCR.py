@@ -6,29 +6,35 @@ import re
 import os
 import json
 
-# coutomer struct data
+# customer struct data
 QuestionData = list[Optional[Union[str, bool]]]
 
 class PaddleOCR_Extracter:
-    def __init__(self) -> None:
-        self.BASE_PATH: Path = Path.cwd()
-        self.TEMP_FILE_PATH = self.BASE_PATH.parent / 'tmpfile'
-        return None
     
-    def test_path(self):
-        print(self.BASE_PATH, self.TEMP_FILE_PATH)
-        if self.TEMP_FILE_PATH.is_dir():
-            print('YES')
+    BASE_PATH: Path = Path.cwd().parent.parent
     
-    def _extract_image_to_json(self, img_path: str, json_path: str) -> None:
+    def __init__(self, fold_name: str) -> None:
         '''
-        Using paddle to fetch image content and stored it to a json file.
         Args:
-            img_path: Storage path of the photos to be extracted.
-            json_path: The extracted content will be stored in `JSON` format.
+            fold_name: The folder containing the all content you need to extract. Note: Must be located in the `input` folder within the project's root directory.
+        '''
+        self.INPUT_FOLD_NAME: Path = self.BASE_PATH / 'input' / fold_name
+        self.OUTPUT_FOLD_NAME: Path = self.BASE_PATH / 'output' / fold_name
+        return None
+
+    
+    def _extract_image_to_json(self) -> None:
+        '''
+        Using paddle to fetch one image content and stored it to a json file.
         '''
         
-        #Recommended to import necessary dependency packages in this function 
+        img_path = self.INPUT_FOLD_NAME
+        output_json_path = self.OUTPUT_FOLD_NAME / 'json'
+        if not Path.is_dir(img_path):
+            print(f"{img_path} input fold is not a fold or exists")
+            return
+
+        # Recommended to import necessary dependency packages in this function 
         # instead of at the beginning of the file 
         # to avoid frequent loading of data packages during instance creation. 
         # Also, avoid loading Paddle OCR when it is not needed, 
@@ -36,11 +42,12 @@ class PaddleOCR_Extracter:
         import paddle
         from paddleocr import PaddleOCR
         
+        
         # Check out your cuda compiled
         if paddle.device.is_compiled_with_cuda():
-            print(f"Using GPU for acceleration... (Image: {img_path})")
+            print(f"Using GPU for acceleration... (Images: {img_path})")
         else:
-            print(f"Using CPU... (Image: {img_path})")
+            print(f"Using CPU... (Images: {img_path})")
 
         # Initialize OCR
         ocr = PaddleOCR(
@@ -52,45 +59,58 @@ class PaddleOCR_Extracter:
         )
 
         # Run OCR identification
-        result = ocr.predict(input=img_path)
+        try:
+            result = ocr.predict(input=str(img_path))
+        except Exception as error:
+            print(error)
+            return
+            
 
-        # --- REVERTED TO USER'S PREFERENCE ---
         # Save the result using the .save_to_json() method
         if result:
             # Ensure output directory exists before saving
-            os.makedirs(os.path.dirname(json_path), exist_ok=True)
+            
+            os.makedirs(os.path.dirname(output_json_path), exist_ok=True)
             for res in result:
                 # This will save the result of the first page (or only page)
                 # and overwrite if multiple pages are in the result.
                 # Assuming one page per image.
-                res.save_to_json(json_path)
+                res.save_to_json(output_json_path)
         else:
             print(f"No OCR result for image: {img_path}")
     
-    
-    def extract_contents(self, json_file, deugger_model: bool = False) -> list[str]:
-        '''Reads the OCR JSON output and returns a list of text lines that include all total content.'''
-        try:
-            with open(json_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            rec_texts_list: list[str] = data['rec_texts']
+    def extract_all_contents(self) -> list[list[str]]:
+        '''
+        '''
+        JSON_FOLD = self.OUTPUT_FOLD_NAME / 'json'
+        total_contents = []
         
-            # Optional: Save raw text for debugging
-            if deugger_model == True:
-                debug_txt_file = os.path.join(os.path.dirname(json_file), f"{os.path.basename(json_file)}.txt")
-                with open(debug_txt_file, 'w', encoding='utf-8') as f:
+        def extract_contents(json_file: Path) -> list[str]:
+            '''Reads One JSON file that has been OCRed JSON output and returns a list of text lines that include all total content.'''
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            
+                rec_texts_list: list[str] = data['rec_texts']
+        
+                # Optional: Save raw text for debugging
+                debug_txt_file = json_file.parent.parent / 'total_contents.txt'
+                with open(debug_txt_file, '+a', encoding='utf-8') as f:
                     content_to_write = '\n'.join(rec_texts_list)
                     f.write(content_to_write)
             
-            return rec_texts_list
+                return rec_texts_list
         
-        except FileNotFoundError:
-            print(f"Error: JSON file not found at {json_file}")
-            return []
-        except KeyError:
-            print(f"Error: 'rec_texts' key not found in {json_file}. The JSON structure might be different.")
-            return []
+            except FileNotFoundError:
+                print(f"Error: JSON file not found at {json_file}")
+                return []
+            except KeyError:
+                print(f"Error: 'rec_texts' key not found in {json_file}. The JSON structure might be different.")
+                return []
+        for item_file in JSON_FOLD.iterdir():
+            if item_file.suffix == '.json':
+                total_contents.append(extract_contents(item_file))
+        return total_contents
         
     
     def _structure_questions(self, text_lines: list[str]) -> list[QuestionData]:
@@ -99,7 +119,7 @@ class PaddleOCR_Extracter:
         1. Combine multiple lines of questions into a single element of a list.
         2. Place options A, B, C, and D into separate list elements.
         
-        Returns:
+        Return:
             list[QuestionData]
             QuestionData content is ['题目', 'A', 'B', 'C', 'D', '多选', '正确答案'].
         """
@@ -176,17 +196,29 @@ class PaddleOCR_Extracter:
             
         return all_questions
             
+    
+    def test_path(self):
+        print(self.BASE_PATH)
+        print(f"INPUT_FOLD_NAME is {self.INPUT_FOLD_NAME}; is FOLD: {Path.is_dir(self.INPUT_FOLD_NAME)}")
+
 if __name__ == '__main__':
     print("start running...")
-    P = PaddleOCR_Extracter()
-    output_excel = 'data.xlsx'
-    excel_lines = P._structure_questions(P.extract_contents('../output/1_res.json'))
-    df = pd.DataFrame(excel_lines)
-    output_file = 'data.xlsx'
-    # Create DataFrame (optional: add column names)
-    df = pd.DataFrame(excel_lines, columns=['题目', 'A', 'B', 'C', 'D', '多选', '正确答案'])
-    # Write to Excel
-    df.to_excel(output_file, 
-                sheet_name='Reshaped Data', 
-                index=False) # Excludes the DataFrame's row index (0, 1, 2, 3)
-    print(f"\nData successfully written to {output_file} in four columns.")
+    
+    # P = PaddleOCR_Extracter('chapter2/multiple')
+    P = PaddleOCR_Extracter('chapter2/singal')
+    P.extract_all_contents()
+    # P._extract_image_to_json('../../input/chapter2', '../../output/')
+    # P._extract_image_to_json('../../input/chapter2')
+    # P._extract_image_to_json()
+    # P.test_path()
+    # output_excel = 'data.xlsx'
+    # excel_lines = P._structure_questions(P.extract_contents('../output/1_res.json'))
+    # df = pd.DataFrame(excel_lines)
+    # output_file = '../output/data.xlsx'
+    # # Create DataFrame (optional: add column names)
+    # df = pd.DataFrame(excel_lines, columns=['题目', 'A', 'B', 'C', 'D', '多选', '正确答案'])
+    # # Write to Excel
+    # df.to_excel(output_file, 
+    #             sheet_name='Reshaped Data', 
+    #             index=False) # Excludes the DataFrame's row index (0, 1, 2, 3)
+    # print(f"\nData successfully written to {output_file} in four columns.")
