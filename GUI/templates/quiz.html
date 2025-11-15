@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Quiz - {{ question_set.name }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Quiz: {{ question_set.name }}</h1>
+    <a href="{{ url_for('index') }}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left"></i> Back to Sets
+    </a>
+</div>
+
+<!-- Form action now points to the specific set's submit URL -->
+<form action="{{ url_for('submit_answer', set_id=question_set.id) }}" method="post">
+    {% for question in questions %}
+    <div class="card mb-3">
+        <div class="card-body">
+            <h5 class="card-title">{{ loop.index }}. {{ question.text }}</h5>
+            
+            {% set options = {'A': question.option_a, 'B': question.option_b, 'C': question.option_c, 'D': question.option_d} %}
+            
+            {% for key, value in options.items() %}
+                <div class="form-check">
+                    {% if question.is_multiple %}
+                        <input class="form-check-input" type="checkbox" name="answer_{{ question.id }}" value="{{ key }}" id="q{{ question.id }}_{{ key }}">
+                    {% else %}
+                        <input class="form-check-input" type="radio" name="answer_{{ question.id }}" value="{{ key }}" id="q{{ question.id }}_{{ key }}">
+                    {% endif %}
+                    <label class="form-check-label" for="q{{ question.id }}_{{ key }}">
+                        <strong>{{ key }}.</strong> {{ value }}
+                    </label>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    
+    <button type="submit" class="btn btn-success">Submit Answers</button>
+</form>
+{% endblock %}

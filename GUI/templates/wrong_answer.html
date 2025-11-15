@@ -1,20 +1,26 @@
 {% extends "base.html" %}
-{% block title %}我的错题{% endblock %}
+{% block title %}Wrong Answers - {{ question_set.name }}{% endblock %}
 
 {% block content %}
-<h1>我的错题集</h1>
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>Wrong Answers for "{{ question_set.name }}"</h1>
+    <a href="{{ url_for('view_wrong_answer_sets') }}" class="btn btn-secondary">
+        <i class="fas fa-arrow-left"></i> Back to List
+    </a>
+</div>
+
 {% if wrong_answers %}
     {% for wa in wrong_answers %}
     <div class="card mb-3">
         <div class="card-body">
-            <p><strong>题目:</strong> {{ wa.question_text }}</p>
-            <p><strong>你的选择:</strong> {{ wa.selected_answer }}</p>
-            <p><strong>正确答案:</strong> {{ wa.correct_answer }}</p>
-            <small class="text-muted">记录时间: {{ wa.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
+            <p><strong>Question:</strong> {{ wa.question_text }}</p>
+            <p class="text-danger"><strong>Your Answer:</strong> {{ wa.selected_answer or "No Answer" }}</p>
+            <p class="text-success"><strong>Correct Answer:</strong> {{ wa.correct_answer }}</p>
+            <small class="text-muted">Recorded: {{ wa.timestamp.strftime('%Y-%m-%d %H:%M') }}</small>
         </div>
     </div>
     {% endfor %}
 {% else %}
-    <div class="alert alert-info">恭喜！暂无错题。</div>
+    <div class="alert alert-info">Congratulations! No wrong answers for this set.</div>
 {% endif %}
 {% endblock %}

@@ -1,213 +1,282 @@
 # app.py
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, abort
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 import pandas as pd
-import os
+from werkzeug.security import generate_password_hash, check_password_hash
+from typing import Optional
+from pathlib import Path
+from sqlalchemy.orm import joinedload
+from sqlalchemy import distinct
 
-from models import db, User, WrongAnswer
+# --- IMPORT ALL models ---
+from models import db, User, WrongAnswer, Question, QuestionSet
 
-# 初始化Flask应用
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production'  # 重要！
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///quiz.db'
+# --- Pathlib Setup ---
+APP_ROOT: Path = Path(__file__).parent 
+INSTANCE_PATH: Path = APP_ROOT / 'instance'
+INSTANCE_PATH.mkdir(exist_ok=True) 
+
+# Initialize Flask app
+app: Flask = Flask(__name__, instance_path=str(INSTANCE_PATH))
+app.config['SECRET_KEY'] = 'your-secret-key-change-this-in-production'
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{INSTANCE_PATH / "quiz.db"}'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# 初始化数据库和登录管理器
+# Initialize database and login manager
 db.init_app(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login'  # 未登录时重定向到登录页
+login_manager.login_view = 'login'  # type: ignore 
+login_manager.login_message = 'Please login to access this page.'
+login_manager.login_message_category = 'info'
 
-# 加载用户回调函数
+# User loader callback
 @login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
+def load_user(user_id: str) -> Optional[User]:
+    return db.session.get(User, int(user_id))
 
-# 在应用上下文中创建数据库表
+# Create database tables in application context
 with app.app_context():
     db.create_all()
 
-# 从Excel加载题目数据
-QUESTIONS = []
-def load_questions():
-    global QUESTIONS
-    try:
-        # 假设你的数据在第一个sheet，且第一行是标题
-        df = pd.read_excel('dataSet/data.xlsx')
-        # 清理列名，去除可能的空格或特殊字符
-        df.columns = [col.strip() for col in df.columns]
-        QUESTIONS = df.to_dict('records') # 转换为字典列表
-        print(f"成功加载 {len(QUESTIONS)} 道题目")
-    except Exception as e:
-        print(f"加载题目失败: {e}")
-        QUESTIONS = []
-
-# 应用启动时加载题目
-load_questions()
-
-# 路由：首页/题目列表
+# --- MODIFIED: Route: Home/Dashboard ---
 @app.route('/')
+@login_required
 def index():
-    if not current_user.is_authenticated:
-        return redirect(url_for('login'))
-    return render_template('index.html', questions=QUESTIONS)
+    # Show all Question Sets uploaded by the current user
+    question_sets: list[QuestionSet] = QuestionSet.query.filter_by(user_id=current_user.id).order_by(QuestionSet.timestamp.desc()).all()
+    return render_template('index.html', question_sets=question_sets)
 
-# 路由：登录
+# --- NEW: Route for taking a specific quiz ---
+@app.route('/quiz/<int:set_id>')
+@login_required
+def take_quiz(set_id: int):
+    # Find the set and ensure it belongs to the current user
+    question_set: Optional[QuestionSet] = db.session.get(QuestionSet, set_id)
+    if not question_set or question_set.user_id != current_user.id:
+        abort(404)
+        
+    # Get all questions for this set
+    questions: list[Question] = Question.query.filter_by(question_set_id=set_id).all()
+    
+    return render_template('quiz.html', questions=questions, question_set=question_set)
+
+# --- MODIFIED: Route: Submit Answers (now tied to a set_id) ---
+@app.route('/submit/<int:set_id>', methods=['POST'])
+@login_required
+def submit_answer(set_id: int):
+    # Find the set and ensure it belongs to the current user
+    question_set: Optional[QuestionSet] = db.session.get(QuestionSet, set_id)
+    if not question_set or question_set.user_id != current_user.id:
+        abort(404)
+
+    wrong_count: int = 0
+    all_questions_in_set: list[Question] = Question.query.filter_by(question_set_id=set_id).all()
+
+    for question in all_questions_in_set:
+        try:
+            if not question.correct_answer:
+                continue 
+            
+            correct_sorted: str = ''.join(sorted(list(str(question.correct_answer).upper().strip())))
+            
+            selected_sorted: str = ""
+            if question.is_multiple:
+                selected_list: list[str] = request.form.getlist(f'answer_{question.id}')
+                selected_sorted = ''.join(sorted([s.upper() for s in selected_list]))
+            else:
+                selected_single: Optional[str] = request.form.get(f'answer_{question.id}')
+                if selected_single:
+                    selected_sorted = selected_single.upper().strip()
+
+            if selected_sorted != correct_sorted:
+                wrong_count += 1
+                # Record the wrong answer in the database
+                existing: Optional[WrongAnswer] = WrongAnswer.query.filter_by(
+                    user_id=current_user.id,
+                    question_text=question.text,
+                    question_set_id=set_id # --- Track by set_id ---
+                ).first()
+                
+                if not existing: 
+                    wrong_record = WrongAnswer()
+                    wrong_record.user_id = current_user.id
+                    wrong_record.question_text = question.text
+                    wrong_record.selected_answer = selected_sorted
+                    wrong_record.correct_answer = correct_sorted
+                    wrong_record.question_set_id = set_id # --- Save the set_id ---
+                    
+                    db.session.add(wrong_record)
+        except Exception as e:
+            print(f"Error processing question {question.id}: {e}")
+            continue
+    
+    db.session.commit()
+    flash(f'Quiz complete for "{question_set.name}"! You got {wrong_count} wrong.', 'info')
+    # --- Redirect back to the main dashboard ---
+    return redirect(url_for('index'))
+
+# --- MODIFIED: Route: View Wrong Answer Sets ---
+@app.route('/wrong_answers')
+@login_required
+def view_wrong_answer_sets():
+    # Find all QuestionSets where the user has at least one wrong answer
+    sets_with_errors: list[QuestionSet] = QuestionSet.query.join(WrongAnswer).filter(
+        QuestionSet.user_id == current_user.id
+    ).distinct().order_by(QuestionSet.name).all()
+    
+    return render_template('wrong_answer_sets.html', question_sets=sets_with_errors)
+
+# --- NEW: Route to see wrong answers for a SPECIFIC set ---
+@app.route('/wrong_answers/<int:set_id>')
+@login_required
+def view_wrong_answers_for_set(set_id: int):
+    # Find the set and ensure it belongs to the current user
+    question_set: Optional[QuestionSet] = db.session.get(QuestionSet, set_id)
+    if not question_set or question_set.user_id != current_user.id:
+        abort(404)
+        
+    wrong_list: list[WrongAnswer] = WrongAnswer.query.filter_by(
+        user_id=current_user.id,
+        question_set_id=set_id
+    ).order_by(WrongAnswer.timestamp.desc()).all()
+    
+    return render_template('wrong_answer.html', wrong_answers=wrong_list, question_set=question_set)
+
+# --- MODIFIED: Route: Import Excel (now creates a QuestionSet) ---
+@app.route('/import_excel', methods=['GET', 'POST'])
+@login_required
+def import_excel():
+    if request.method == 'POST':
+        file = request.files.get('excel_file')
+        set_name: Optional[str] = request.form.get('set_name')
+        
+        if not file or not set_name:
+            flash('Please provide both a file and a name for the set.', 'error')
+            return redirect(request.url)
+
+        if not file.filename:
+            flash('File has no filename', 'error')
+            return redirect(request.url)
+            
+        if not file.filename.endswith(('.xlsx', '.xls')):
+            flash('Please select a valid Excel file (.xlsx or .xls)', 'error')
+            return redirect(request.url)
+        
+        uploads_dir: Path = APP_ROOT / 'uploads'
+        uploads_dir.mkdir(exist_ok=True)
+        file_path: Path = uploads_dir / file.filename
+        
+        try:
+            file.save(file_path)
+            
+            df = pd.read_excel(file_path, engine='openpyxl')
+            df.columns = [str(col).strip() for col in df.columns]
+
+            required_cols: list[str] = ['题目', 'A', 'B', 'C', 'D', '是否多选', '正确答案']
+            if not all(col in df.columns for col in required_cols):
+                flash(f'Excel file is missing required columns. Need: {", ".join(required_cols)}', 'error')
+                if file_path.exists():
+                    file_path.unlink()
+                return redirect(request.url)
+
+            # --- NEW: Create the QuestionSet ---
+            new_set = QuestionSet(name=set_name, user_id=current_user.id)
+            db.session.add(new_set)
+            db.session.flush() # Flush to get the new_set.id for the questions
+            
+            for _, row in df.iterrows():
+                question = Question()
+                question.text = str(row['题目'])
+                question.option_a = str(row['A'])
+                question.option_b = str(row['B'])
+                question.option_c = str(row['C'])
+                question.option_d = str(row['D'])
+                question.is_multiple = str(row['是否多选']).strip().upper() == 'TRUE'
+                question.correct_answer = str(row['正确答案']).strip().upper()
+                question.question_set_id = new_set.id # --- Link question to the new set ---
+                
+                db.session.add(question)
+            
+            db.session.commit()
+            flash(f'Question Set "{set_name}" successfully imported!', 'success')
+        except Exception as e:
+            db.session.rollback()
+            flash(f'Import failed: {str(e)}', 'error')
+        finally:
+            if file_path.exists():
+                file_path.unlink()
+        
+        return redirect(url_for('index')) # Redirect to dashboard after import
+        
+    return render_template('import_excel.html')
+
+# --- NEW: Route to delete a Question Set ---
+@app.route('/delete_set/<int:set_id>', methods=['POST'])
+@login_required
+def delete_set(set_id: int):
+    # Find the set and ensure it belongs to the current user
+    question_set: Optional[QuestionSet] = db.session.get(QuestionSet, set_id)
+    if not question_set or question_set.user_id != current_user.id:
+        abort(404)
+        
+    try:
+        # Thanks to `cascade="all, delete-orphan"` in models.py,
+        # deleting the set will also delete all its questions and wrong answers.
+        db.session.delete(question_set)
+        db.session.commit()
+        flash(f'Question Set "{question_set.name}" has been deleted.', 'success')
+    except Exception as e:
+        db.session.rollback()
+        flash(f'Error deleting set: {str(e)}', 'error')
+        
+    return redirect(url_for('index'))
+
+
+# --- (Login/Register/Logout routes are unchanged) ---
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password'] # 注意：生产环境必须加密
-        
-        # 简单验证（实际应查数据库并验证密码哈希）
-        user = User.query.filter_by(username=username).first()
-        if user and user.password_hash == password: # 不安全！仅作演示
+        username: str = request.form['username']
+        password: str = request.form['password']
+        user: Optional[User] = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password):
             login_user(user)
-            flash('登录成功！', 'success')
-            next_page = request.args.get('next')
+            next_page: Optional[str] = request.args.get('next')
             return redirect(next_page) if next_page else redirect(url_for('index'))
         else:
-            flash('用户名或密码错误', 'error')
+            flash('Invalid username or password', 'error')
     return render_template('login.html')
 
-# 路由：注册（可选，简化版可省略，手动创建用户）
 @app.route('/register', methods=['GET', 'POST'])
 def register():
+    if current_user.is_authenticated:
+        return redirect(url_for('index'))
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        
+        username: str = request.form['username']
+        password: str = request.form['password']
         if User.query.filter_by(username=username).first():
-            flash('用户名已存在', 'error')
+            flash('Username already exists', 'error')
         else:
-            # 创建新用户（生产环境密码需哈希）
-            new_user = User(username=username, password_hash=password)
+            hashed_pw: str = generate_password_hash(password, method='pbkdf2:sha256')
+            new_user = User()
+            new_user.username = username
+            new_user.password_hash = hashed_pw
             db.session.add(new_user)
             db.session.commit()
-            flash('注册成功，请登录', 'success')
+            flash('Registration successful, please login', 'success')
             return redirect(url_for('login'))
     return render_template('register.html')
 
-# 路由：登出
 @app.route('/logout')
 @login_required
 def logout():
     logout_user()
-    flash('已成功登出', 'info')
+    flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
-
-# 路由：答题提交
-@app.route('/submit', methods=['POST'])
-@login_required
-def submit_answer():
-    # 获取表单数据
-    answers = {}
-    for key, value in request.form.items():
-        if key.startswith('answer_'):
-            qid = key.split('_')[1] # 提取问题ID（假设是索引）
-            answers[qid] = value
-    
-    wrong_count = 0
-    # 遍历所有回答
-    for qid_str, selected in answers.items():
-        try:
-            qid = int(qid_str)
-            if qid >= len(QUESTIONS): 
-                continue # 防止越界
-            question = QUESTIONS[qid]
-            # 从文本中解析正确答案，例如： "|A||"
-            # 这里假设正确答案在最后一个"| |"之间
-            answer_parts = str(question['是否多选']).split('|')
-            # 找到最后一个非空部分
-            correct_ans = None
-            for part in reversed(answer_parts):
-                if part.strip():
-                    correct_ans = part.strip()
-                    break
-            
-            # 如果没有找到，跳过
-            if not correct_ans:
-                continue
-                
-            # 比较答案（忽略大小写和顺序，对于多选）
-            if isinstance(selected, list): # 多选框返回list
-                selected_sorted = ''.join(sorted([s.upper() for s in selected]))
-            else:
-                selected_sorted = selected.upper().strip()
-                
-            correct_sorted = ''.join(sorted([c.upper() for c in correct_ans if c in 'ABCD']))
-            
-            if selected_sorted != correct_sorted:
-                wrong_count += 1
-                # 记录错题到数据库
-                existing = WrongAnswer.query.filter_by(
-                    user_id=current_user.id,
-                    question_text=question['题目']
-                ).first()
-                if not existing: # 避免重复记录同一道错题
-                    wrong_record = WrongAnswer(
-                        user_id=current_user.id,
-                        question_text=question['题目'],
-                        selected_answer=selected_sorted,
-                        correct_answer=correct_sorted
-                    )
-                    db.session.add(wrong_record)
-        except Exception as e:
-            print(f"处理第{qid}题时出错: {e}")
-            continue
-    
-    db.session.commit()
-    flash(f'答题完成！共答错 {wrong_count} 题。', 'info')
-    return redirect(url_for('index'))
-
-# 路由：查看错题集
-@app.route('/wrong_answers')
-@login_required
-def view_wrong_answers():
-    wrong_list = WrongAnswer.query.filter_by(user_id=current_user.id).all()
-    return render_template('wrong_answers.html', wrong_answers=wrong_list)
-
-@app.route('/import_excel', methods=['GET', 'POST'])
-@login_required  # 仅登录用户可访问
-def import_excel():
-    if request.method == 'POST':
-        # 获取上传的文件
-        file = request.files.get('excel_file')
-        if not file:
-            flash('请选择一个Excel文件', 'error')
-            return redirect(request.url)
-        
-        # 保存文件到临时路径
-        file_path = os.path.join('uploads', file.filename)
-        os.makedirs('uploads', exist_ok=True)  # 创建上传目录
-        file.save(file_path)
-        
-        try:
-            # 读取Excel文件
-            df = pd.read_excel(file_path, engine='openpyxl')
-            # 清理列名（去除空格）
-            df.columns = [col.strip() for col in df.columns]
-            
-            # 将数据写入数据库
-            for _, row in df.iterrows():
-                question = Question(
-                    text=row['题目'],
-                    option_a=row['A'],
-                    option_b=row['B'],
-                    option_c=row['C'],
-                    option_d=row['D'],
-                    is_multiple=row['是否多选'] == 'TRUE'
-                )
-                db.session.add(question)
-            db.session.commit()
-            flash('Excel 数据已成功导入数据库！', 'success')
-        except Exception as e:
-            db.session.rollback()
-            flash(f'导入失败: {str(e)}', 'error')
-        finally:
-            os.remove(file_path)  # 删除临时文件
-        
-    return render_template('import_excel.html')
 
 if __name__ == '__main__':
     app.run(debug=True)

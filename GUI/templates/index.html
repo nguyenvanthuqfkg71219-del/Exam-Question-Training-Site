@@ -1,30 +1,49 @@
 {% extends "base.html" %}
-{% block title %}答题{% endblock %}
+{% block title %}Manage Sets{% endblock %}
 
 {% block content %}
-<h1>开始答题</h1>
-<form action="{{ url_for('submit_answer') }}" method="post">
-    {% for idx, question in enumerate(questions) %}
-    <div class="card mb-3">
-        <div class="card-body">
-            <h5 class="card-title">{{ loop.index }}. {{ question['题目'] }}</h5>
-            {% set options = {'A': question['A'], 'B': question['B'], 'C': question['C'], 'D': question['D']} %}
-            {% for key, value in options.items() %}
-                <div class="form-check">
-                    {% if question['是否多选'] == True or question['是否多选'] == 'TRUE' %}
-                        <input class="form-check-input" type="checkbox" name="answer_{{ idx }}" value="{{ key }}" id="q{{ idx }}_{{ key }}">
-                    {% else %}
-                        <input class="form-check-input" type="radio" name="answer_{{ idx }}" value="{{ key }}" id="q{{ idx }}_{{ key }}">
-                    {% endif %}
-                    <label class="form-check-label" for="q{{ idx }}_{{ key }}">
-                        <strong>{{ key }}.</strong> {{ value }}
-                    </label>
-                </div>
-            {% endfor %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1>My Question Sets</h1>
+    <a href="{{ url_for('import_excel') }}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Import New Set
+    </a>
+</div>
+
+{% if question_sets %}
+    <div class="list-group">
+        {% for q_set in question_sets %}
+        <div class="list-group-item list-group-item-action flex-column align-items-start">
+            <div class="d-flex w-100 justify-content-between">
+                <h5 class="mb-1">{{ q_set.name }}</h5>
+                <small>Uploaded: {{ q_set.timestamp.strftime('%Y-%m-%d') }}</small>
+            </div>
+            <p class="mb-1">Contains {{ q_set.questions|length }} questions.</p>
+            
+            <!-- Action Buttons -->
+            <div>
+                <!-- This links to the new quiz page, and correctly passes the set_id -->
+                <a href="{{ url_for('take_quiz', set_id=q_set.id) }}" class="btn btn-success btn-sm me-2">
+                    <i class="fas fa-play"></i> Start Quiz
+                </a>
+                <a href="{{ url_for('view_wrong_answers_for_set', set_id=q_set.id) }}" class="btn btn-warning btn-sm me-2">
+                    <i class="fas fa-times"></i> View Wrong Answers
+                </a>
+                <!-- This links to the delete route, and correctly passes the set_id -->
+                <form action="{{ url_for('delete_set', set_id=q_set.id) }}" method="POST" class="d-inline delete-set-form">
+                    <button type="submit" class="btn btn-danger btn-sm">
+                        <i class="fas fa-trash"></i> Delete
+                    </button>
+                </form>
+            </div>
         </div>
+        {% endfor %}
     </div>
-    {% endfor %}
-    
-    <button type="submit" class="btn btn-success">提交答案</button>
-</form>
+{% else %}
+    <div class="alert alert-info text-center">
+        <p>You haven't imported any question sets yet.</p>
+        <a href="{{ url_for('import_excel') }}" class="btn btn-primary">
+            <i class="fas fa-plus"></i> Import Your First Set
+        </a>
+    </div>
+{% endif %}
 {% endblock %}

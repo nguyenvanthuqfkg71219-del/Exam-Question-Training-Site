@@ -1,14 +1,23 @@
 {% extends "base.html" %}
-{% block title %}导入Excel题目{% endblock %}
+{% block title %}Import Excel Quiz{% endblock %}
 
 {% block content %}
-<h1>导入Excel题目</h1>
+<h1>Import Excel Quiz</h1>
 <form method="post" enctype="multipart/form-data">
+    <!-- NEW: Added field for Set Name -->
     <div class="mb-3">
-        <label for="excel_file" class="form-label">选择Excel文件</label>
-        <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls" required>
-        <small class="form-text text-muted">请确保文件格式与示例一致。</small>
+        <label for="set_name" class="form-label">Question Set Name</label>
+        <input class="form-control" type="text" id="set_name" name="set_name" placeholder="E.g., Chapter 1 Review" required>
+        <small class="form-text text-muted">Give this quiz set a unique name.</small>
     </div>
-    <button type="submit" class="btn btn-primary">开始导入</button>
+
+    <div class="mb-3">
+        <label for="excel_file" class="form-label">Select Excel File</label>
+        <input class="form-control" type="file" id="excel_file" name="excel_file" accept=".xlsx,.xls" required>
+        <small class="form-text text-muted">Ensure the file has columns: 题目, A, B, C, D, 是否多选, 正确答案</small>
+    </div>
+    <button type="submit" class="btn btn-primary">
+        <i class="fas fa-upload"></i> Start Import
+    </button>
 </form>
 {% endblock %}
