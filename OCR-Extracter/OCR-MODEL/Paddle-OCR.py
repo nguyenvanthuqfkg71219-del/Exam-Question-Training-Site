@@ -13,13 +13,14 @@ class PaddleOCR_Extracter:
     # PATH
     BASE_PATH: Path = Path.cwd().parent.parent # Workstation root directory
     
-    def __init__(self, fold_name: str) -> None:
+    def __init__(self, fold_name: str, is_multiple: bool = False) -> None:
         '''
         Args:
             fold_name: The folder containing the all content you need to extract. Note: Must be located in the `input` folder within the project's root directory.
         '''
         self.INPUT_FOLD_NAME: Path = self.BASE_PATH / 'input' / fold_name
         self.OUTPUT_FOLD_NAME: Path = self.BASE_PATH / 'output' / fold_name
+        self.is_multiple = is_multiple
         return None
 
     
@@ -97,7 +98,7 @@ class PaddleOCR_Extracter:
                 rec_texts_list: list[str] = data['rec_texts']
         
                 # Optional: Save raw text for debugging
-                debug_txt_file = json_file.parent.parent / 'extracted_total_contents.txt'
+                debug_txt_file = json_file.parent.parent.parent / 'extracted_total_contents.txt'
                 with open(debug_txt_file, '+a', encoding='utf-8') as f:
                     f.write('\n=========================================================\n')
                     content_to_write = '\n'.join(rec_texts_list)
@@ -132,7 +133,7 @@ class PaddleOCR_Extracter:
         
         Return:
             list[QuestionData]
-            QuestionData content is ['题目', 'A', 'B', 'C', 'D', '多选', '正确答案'].
+            QuestionData content is ['题目', 'A', 'B', 'C', 'D', '多选'].
         """
         # Helper function to clean and store an option in the correct index.
         def store_option(question_list: QuestionData, option_text: str) -> None:
@@ -177,11 +178,6 @@ class PaddleOCR_Extracter:
                 merged_lines.append(line)
             else:
                 merged_lines[-1] += "" + line
-
-
-        # # debugger code
-        # for line in merged_lines:
-        #     print(f"merged line: {line}")
             
             
         # --- 3. Pass 2: Structure into Question lists ---
@@ -202,6 +198,7 @@ class PaddleOCR_Extracter:
                     None,       # 2: B
                     None,       # 3: C
                     None,       # 4: D
+                    self.is_multiple # Is tmultiple-choice?
                 ]
                 all_questions.append(current_question_list)
         
@@ -226,46 +223,14 @@ class PaddleOCR_Extracter:
                         None,       # 2: B
                         None,       # 3: C
                         None,       # 4: D
+                        self.is_multiple # Is tmultiple-choice?
                     ]
                     all_questions.append(current_question_list)
                     store_option(all_questions[-1], line)
-                
-                    
-                
-                
-                # # debgger code
-                # if line == "A.①②":
-                #     print("Hello Debugger")
-                #     # check one line whether include two or more choice
-                #     option_matches = multi_option_find_re.findall(line)
-            
-                #     if len(option_matches) >= 2:
-                #         split_parts: list[str] = multi_option_split_re.split(line)
-                #         for part in split_parts:
-                #             store_option(active_question_list, part)
-                #     elif len(option_matches) == 1 and line.startswith(tuple(option_map.keys())):
-                #         store_option(active_question_list, line)
-                #     else:
-                #         print("test")
-                        
-                #     # print(active_question_list)
-                #     # print(all_questions[-1])
-                # else:
-                #     # check one line whether include two or more choice
-                #     option_matches = multi_option_find_re.findall(line)
-            
-                #     if len(option_matches) >= 2:
-                #         split_parts: list[str] = multi_option_split_re.split(line)
-                #         for part in split_parts:
-                #             store_option(active_question_list, part)
-                #     elif len(option_matches) == 1 and line.startswith(tuple(option_map.keys())):
-                #         store_option(active_question_list, line)
-                #     print(all_questions[-1] if '邓小平曾经' in str(all_questions[-1][0]) else None)
-                    
-                    
+               
                 
         # Log file
-        debug_txt_file = self.OUTPUT_FOLD_NAME / 'structed_contents.txt'
+        debug_txt_file = self.OUTPUT_FOLD_NAME.parent / 'structed_contents.txt'
         with open(debug_txt_file, '+a', encoding='utf-8') as f:
             for question in all_questions:
                 f.write("\n========================================")
@@ -286,11 +251,12 @@ if __name__ == '__main__':
     
     
         def store_excel(self, question_lists: list[QuestionData]):
+            print(question_lists)
             output_file = self.BASE_PATH.parent.parent / 'output' / 'data.xlsx'
             output_file_csv = self.BASE_PATH.parent.parent / 'output' / 'data.csv'
 
             # Create DataFrame (optional: add column names)
-            df = pd.DataFrame(question_lists, columns=['题目', 'A', 'B', 'C', 'D'])
+            df = pd.DataFrame(question_lists, columns=['题目', 'A', 'B', 'C', 'D', '是否多选'])
 
             # Write to Excel
             df.to_excel(output_file, 
@@ -303,12 +269,19 @@ if __name__ == '__main__':
             print(f"\nData successfully written to {output_file}")
     
     
+    # Example
     print("start running...")
-    P = PaddleOCR_Extracter('chapter2/singal')
-    # P._extract_image_to_json()
     
-    structed_line = P.structure_questions(P.extract_all_contents())
+    all_questions = []
+    P = PaddleOCR_Extracter('chapter2/singal', False)
+    # P._extract_image_to_json()
+    structed_line_1 = P.structure_questions(P.extract_all_contents())
+    
+    P = PaddleOCR_Extracter('chapter2/multiple', True)
+    # P._extract_image_to_json()
+    structed_line_2 = P.structure_questions(P.extract_all_contents())
+    
     
     
     E = Excel_Exector()
-    E.store_excel(structed_line)
+    E.store_excel(structed_line_1 + structed_line_2)
