@@ -1,44 +1,69 @@
 {% extends "base.html" %}
 
 {% block content %}
-    <h2>我的错题集</h2>
-    <p>这里按题集分类，汇总了你所有答错的题目。</p>
+    <!-- 标题现在由路由传入 (e.g., "所有错题" 或 "xxx错题集") -->
+    <h2>{{ title }} (共 {{ wrong_answers_list|length }} 道)</h2>
+    <a href="{{ url_for('wrong_answer_sets') }}" class="button">&larr; 返回错题集</a>
 
-    <!-- Point 3: "All Wrong Answers" Button -->
-    <div class="wrong-answer-set-item all-sets-card">
-        <a href="{{ url_for('wrong_answer', set_id='all') }}" class="set-link">
-            <h3>
-                所有错题
-            </h3>
-            <p>
-                查看你所有题集中答错过的题目总汇。
-            </p>
-            <span class="view-review-text">查看总汇 &rarr;</span>
-        </a>
-    </div>
+    <div class="question-list">
+        <!-- 
+          FIX: The loop variable is changed from 'questions' to 'wrong_answers_list'.
+          Each item is now a (question, wrong_answer) tuple.
+        -->
+        {% for question, wrong_answer in wrong_answers_list %}
+            <div class="wrong-answer-item">
+                <h4>{{ loop.index }}. {{ question.question_text }}</h4>
+                
+                {% if question.is_multiple_choice %}
+                    <p class="multi-choice-note">(多选题)</p>
+                {% endif %}
 
-    <hr class="set-divider">
+                <!-- 
+                  FIX: Add logic to show the user's incorrect answer ('is_selected')
+                  as well as the correct answer ('is_correct').
+                -->
+                <div class="options-container">
+                    {% set options = [
+                        {'value': 'A', 'text': question.option_a},
+                        {'value': 'B', 'text': question.option_b},
+                        {'value': 'C', 'text': question.option_c},
+                        {'value': 'D', 'text': question.option_d}
+                    ] %}
+                    {% for option in options %}
+                        {% set is_correct = option.value in question.correct_answer %}
+                        {% set is_selected = option.value in wrong_answer.selected_answer %}
 
-    <!-- Point 2: List of Question Sets -->
-    {% if question_sets %}
-        {% for set in question_sets %}
-            <div class="wrong-answer-set-item">
-                <a href="{{ url_for('wrong_answer', set_id=set.id) }}" class="set-link">
-                    <h3>
-                        {{ set.name }}
-                    </h3>
-                    <p>
-                        上传于: {{ set.timestamp.strftime('%Y-%m-%d') }} | 共 {{ set.questions|length }} 道题
-                    </p>
-                    <span class="view-review-text">查看错题 &rarr;</span>
-                </a>
+                        <div class="option 
+                            {% if is_correct %}correct{% endif %}
+                            {% if is_selected and not is_correct %}incorrect{% endif %}
+                        ">
+                            {{ option.value }}. {{ option.text }}
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <!-- 
+                  FIX: Add the user's selected answer to the answer key.
+                -->
+                <p class="answer-key">
+                    <strong>你的答案:</strong> 
+                    <span class="user-answer">{{ wrong_answer.selected_answer if wrong_answer.selected_answer else '未作答' }}</span>
+                </p>
+                <p class="answer-key">
+                    <strong>正确答案:</strong> 
+                    <span class="correct-answer">{{ question.correct_answer }}</span>
+                </p>
+                
+                <p class="question-source-note">
+                    来源题集: {{ question.question_set.name }}
+                </p>
+            </div>
+        {% else %}
+            <!-- This part remains the same -->
+            <div class="form-container">
+                <h3>太棒了!</h3>
+                <p>这个题集中没有你答错的题目。</p>
             </div>
         {% endfor %}
-    {% else %}
-        <div class="form-container">
-            <h3>没有错题集</h3>
-            <p>你还没有上传任何题集。请先导入一个 Excel 文件。</p>
-            <a href="{{ url_for('import_excel') }}" class="button">立即导入</a>
-        </div>
-    {% endif %}
+    </div>
 {% endblock %}

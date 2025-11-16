@@ -2,12 +2,11 @@ from flask import Flask, render_template, request, redirect, url_for, flash, ses
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
-# Updated model imports
 from models import db, User, Question, WrongAnswer, WrongAnswerSet, QuestionSet
 import pandas as pd
 import random
 from sqlalchemy.orm import joinedload
-from typing import List, Optional, cast
+from typing import List, Optional, cast, Dict, Tuple
 import os
 
 basedir: str = os.path.abspath(os.path.dirname(__file__))
@@ -297,22 +296,29 @@ def quiz(question_id: int) -> str:
 @login_required
 def wrong_answer_sets() -> str:
     question_sets: List[QuestionSet] = QuestionSet.query.filter_by(user_id=current_user.id).order_by(QuestionSet.timestamp.desc()).all()
+    print(question_sets)
     return render_template('wrong_answer_sets.html', question_sets=question_sets)
 
 
+# --- MODIFIED: Goal 1 ---
+# This route now fetches the most recent WrongAnswer for each unique Question
 @app.route('/wrong_answer/<set_id>')
 @login_required
 def wrong_answer(set_id: str) -> str:
     title: str = ""
-    query = db.session.query(Question).join(WrongAnswer).filter(
+    
+    # Query for (Question, WrongAnswer) tuples, ordered by time.
+    # This allows us to find the *most recent* wrong answer for each question.
+    query = db.session.query(Question, WrongAnswer).join(WrongAnswer).filter(
         WrongAnswer.user_id == current_user.id
-    ).distinct()
+    ).order_by(WrongAnswer.timestamp.asc()) # Get oldest first
     
     if set_id == 'all':
         title = "所有错题"
     else:
         try:
             set_id_int: int = int(set_id)
+            # Filter by the specific question set
             query = query.filter(Question.question_set_id == set_id_int)
             set_data: Optional[QuestionSet] = db.session.get(QuestionSet, set_id_int)
             title = f'"{set_data.name}" 错题集' if set_data else "错题集"
@@ -320,10 +326,20 @@ def wrong_answer(set_id: str) -> str:
             flash("无效的题集ID。")
             return redirect(url_for('wrong_answer_sets'))
 
-    wrong_questions: List[Question] = query.all()
+    # Process results to get the *most recent* wrong answer for each unique question
+    all_wrong_answers: List[Tuple[Question, WrongAnswer]] = query.all()
+    
+    # We use a dict to store the latest entry for each question ID.
+    # As we iterate, newer entries (later in the list) overwrite older ones.
+    unique_wrong_answers_map: Dict[int, Tuple[Question, WrongAnswer]] = {}
+    for question, wrong_answer in all_wrong_answers:
+        unique_wrong_answers_map[question.id] = (question, wrong_answer)
+        
+    # Get the final list of (Question, WrongAnswer) tuples
+    wrong_answers_list: List[Tuple[Question, WrongAnswer]] = list(unique_wrong_answers_map.values())
     
     return render_template('wrong_answer.html', 
-                           questions=wrong_questions, 
+                           wrong_answers_list=wrong_answers_list, # Pass the new list
                            title=title)
 
 
@@ -351,16 +367,13 @@ def quiz_history_detail(attempt_id: int) -> str:
                            set_timestamp=attempt.timestamp)
 
 
-# --- MODIFIED: Goal 2 ---
-# This page now shows a list of Question Sets
 @app.route('/my_questions')
 @login_required
 def my_questions() -> str:
     question_sets: List[QuestionSet] = QuestionSet.query.filter_by(user_id=current_user.id).order_by(QuestionSet.timestamp.desc()).all()
     return render_template('my_questions.html', question_sets=question_sets)
 
-# --- NEW: Goal 2 ---
-# This new route shows the questions *inside* a specific set
+
 @app.route('/my_questions/<int:set_id>')
 @login_required
 def my_questions_detail(set_id: int) -> str:
@@ -373,8 +386,6 @@ def my_questions_detail(set_id: int) -> str:
     return render_template('view_question_set_detail.html', questions=questions, set=question_set)
 
 
-# --- NEW: Goal 1 (Delete Functionality) ---
-# Step 1: Show a confirmation page
 @app.route('/delete_confirm/<int:set_id>')
 @login_required
 def delete_question_set_confirm(set_id: int) -> str:
@@ -384,7 +395,7 @@ def delete_question_set_confirm(set_id: int) -> str:
         return redirect(url_for('my_questions'))
     return render_template('delete_confirm.html', set=question_set)
 
-# Step 2: Perform the actual deletion
+
 @app.route('/delete_question_set/<int:set_id>', methods=['POST'])
 @login_required
 def delete_question_set(set_id: int) -> str:
@@ -394,8 +405,6 @@ def delete_question_set(set_id: int) -> str:
         return redirect(url_for('my_questions'))
         
     set_name: str = question_set.name
-    # The cascade rules in models.py will handle deleting all child Questions
-    # and WrongAnswers, and setting history to NULL.
     db.session.delete(question_set)
     db.session.commit()
     
