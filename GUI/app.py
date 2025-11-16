@@ -27,15 +27,14 @@ def load_user(user_id: str) -> Optional[User]:
     return db.session.get(User, int(user_id))
 
 @app.route('/')
-def index():
-    # Fetch question sets for the dropdown
+def index() -> str:
     question_sets: List[QuestionSet] = []
     if current_user.is_authenticated:
         question_sets = QuestionSet.query.filter_by(user_id=current_user.id).order_by(QuestionSet.name).all()
     return render_template('index.html', question_sets=question_sets)
 
 @app.route('/register', methods=['GET', 'POST'])
-def register():
+def register() -> str:
     if request.method == 'POST':
         username: str = request.form['username']
         password: str = request.form['password']
@@ -54,7 +53,7 @@ def register():
     return render_template('register.html')
 
 @app.route('/login', methods=['GET', 'POST'])
-def login():
+def login() -> str:
     if request.method == 'POST':
         username: str = request.form['username']
         password: str = request.form['password']
@@ -69,13 +68,13 @@ def login():
 
 @app.route('/logout')
 @login_required
-def logout():
+def logout() -> str:
     logout_user()
     return redirect(url_for('index'))
 
 @app.route('/import_excel', methods=['GET', 'POST'])
 @login_required
-def import_excel():
+def import_excel() -> str:
     if request.method == 'POST':
         if 'file' not in request.files:
             flash('请求中没有文件部分。')
@@ -88,17 +87,16 @@ def import_excel():
         
         if file.filename.endswith('.xlsx'):
             try:
-                # --- Point 1: Create a new QuestionSet for this file ---
                 file_name: str = file.filename
                 new_question_set = QuestionSet(name=file_name, user_id=current_user.id)
                 db.session.add(new_question_set)
-                db.session.commit() # Commit to get the new_question_set.id
+                db.session.commit() 
 
                 df: pd.DataFrame = pd.read_excel(file)
                 required_cols: List[str] = ['题目', 'A', 'B', 'C', 'D', '正确答案', '是否多选']
                 if not all(col in df.columns for col in required_cols):
                     flash(f'Excel 文件必须包含以下列: {", ".join(required_cols)}')
-                    db.session.rollback() # Rollback the new_question_set
+                    db.session.rollback() 
                     return redirect(url_for('import_excel'))
                 
                 new_questions: List[Question] = []
@@ -116,7 +114,7 @@ def import_excel():
                         correct_answer=str(row['正确答案']).strip(),
                         is_multiple_choice=bool(is_multi_val),
                         user_id=current_user.id,
-                        question_set_id=new_question_set.id # Link to the new set
+                        question_set_id=new_question_set.id 
                     )
                     new_questions.append(question)
                 
@@ -133,7 +131,6 @@ def import_excel():
                 if new_questions:
                     flash('已开始使用新题目进行测验...')
                     
-                    # Create a new wrong answer set, linking to this question set
                     new_wrong_answer_set = WrongAnswerSet(user_id=current_user.id, question_set_id=new_question_set.id)
                     db.session.add(new_wrong_answer_set)
                     db.session.commit()
@@ -164,9 +161,8 @@ def import_excel():
 
 @app.route('/start_quiz', methods=['POST'])
 @login_required
-def start_quiz():
+def start_quiz() -> str:
     num_questions_str: Optional[str] = request.form.get('num_questions')
-    # --- Get the selected question set ID ---
     question_set_id_str: Optional[str] = request.form.get('question_set_id')
     
     if not num_questions_str or not num_questions_str.isdigit():
@@ -175,14 +171,12 @@ def start_quiz():
 
     num_questions: int = int(num_questions_str)
     
-    # --- Build query based on selected set ---
     query = Question.query.filter_by(user_id=current_user.id)
     selected_set_id: Optional[int] = None
     
     if question_set_id_str and question_set_id_str.isdigit():
         query = query.filter_by(question_set_id=int(question_set_id_str))
         selected_set_id = int(question_set_id_str)
-    # 'all' is the default, so no 'else' needed
     
     all_questions: List[Question] = query.all()
     
@@ -194,7 +188,6 @@ def start_quiz():
         flash(f'该题集总共只有 {len(all_questions)} 道题。将开始一个 {len(all_questions)} 道题的测验。')
         num_questions = len(all_questions)
         
-    # Create new quiz attempt, linking to the set ID (None if 'all')
     new_wrong_answer_set = WrongAnswerSet(user_id=current_user.id, question_set_id=selected_set_id)
     db.session.add(new_wrong_answer_set)
     db.session.commit()
@@ -209,7 +202,7 @@ def start_quiz():
 
 @app.route('/quiz/<int:question_id>', methods=['GET', 'POST'])
 @login_required
-def quiz(question_id: int):
+def quiz(question_id: int) -> str:
     if 'question_ids' not in session or not session['question_ids']:
         flash('没有正在进行的测验。请开始一个新的测验。')
         return redirect(url_for('index'))
@@ -241,7 +234,6 @@ def quiz(question_id: int):
         if not is_correct:
             current_wrong_answer_set_id: Optional[int] = session.get('wrong_answer_set_id')
             if not current_wrong_answer_set_id:
-                # Fallback, though this shouldn't happen
                 new_set = WrongAnswerSet(user_id=current_user.id) 
                 db.session.add(new_set)
                 db.session.commit()
@@ -272,7 +264,6 @@ def quiz(question_id: int):
                 count: int = WrongAnswer.query.filter_by(wrong_answer_set_id=wrong_set_id).count()
                 if count > 0:
                     flash('测验完成！快去看看你的错题吧。')
-                    # Redirect to the new "Quiz History" page
                     return redirect(url_for('quiz_history'))
                 else:
                     empty_set: Optional[WrongAnswerSet] = db.session.get(WrongAnswerSet, wrong_set_id)
@@ -285,14 +276,12 @@ def quiz(question_id: int):
             flash('测验完成！')
             return redirect(url_for('index'))
     
-    # --- THIS IS THE FIX ---
     options: List[dict] = [
         {'value': 'A', 'text': question.option_a},
         {'value': 'B', 'text': question.option_b},
         {'value': 'C', 'text': question.option_c},
-        {'value': 'D', 'text': question.option_d} # Changed .d to _d
+        {'value': 'D', 'text': question.option_d}
     ]
-    # --- END OF FIX ---
     
     total_questions: int = len(session.get('question_ids', []))
     current_question_number: int = session.get('current_question_index', 0) + 1
@@ -303,34 +292,33 @@ def quiz(question_id: int):
                            total_questions=total_questions,
                            current_question_number=current_question_number)
 
-# --- NEW/MODIFIED "WRONG ANSWER" ROUTES ---
 
-# Point 2: Show overview of wrong answers by SET
 @app.route('/wrong_answer_sets')
 @login_required
-def wrong_answer_sets():
-    # Fetch all QuestionSets for the user
+def wrong_answer_sets() -> str:
     question_sets: List[QuestionSet] = QuestionSet.query.filter_by(user_id=current_user.id).order_by(QuestionSet.timestamp.desc()).all()
     return render_template('wrong_answer_sets.html', question_sets=question_sets)
 
-# Point 3: Show detailed list of wrong questions for a SET (or 'all')
+
 @app.route('/wrong_answer/<set_id>')
 @login_required
-def wrong_answer(set_id: str):
+def wrong_answer(set_id: str) -> str:
     title: str = ""
-    # Base query for all unique wrong questions for this user
     query = db.session.query(Question).join(WrongAnswer).filter(
         WrongAnswer.user_id == current_user.id
     ).distinct()
     
     if set_id == 'all':
         title = "所有错题"
-        # Query already filters by user, so just get all
     else:
-        # Filter by the specific question set
-        query = query.filter(Question.question_set_id == int(set_id))
-        set_data: Optional[QuestionSet] = db.session.get(QuestionSet, int(set_id))
-        title = f'"{set_data.name}" 错题集' if set_data else "错题集"
+        try:
+            set_id_int: int = int(set_id)
+            query = query.filter(Question.question_set_id == set_id_int)
+            set_data: Optional[QuestionSet] = db.session.get(QuestionSet, set_id_int)
+            title = f'"{set_data.name}" 错题集' if set_data else "错题集"
+        except ValueError:
+            flash("无效的题集ID。")
+            return redirect(url_for('wrong_answer_sets'))
 
     wrong_questions: List[Question] = query.all()
     
@@ -338,26 +326,20 @@ def wrong_answer(set_id: str):
                            questions=wrong_questions, 
                            title=title)
 
-# --- END OF "WRONG ANSWER" ROUTES ---
 
-
-# --- NEW "QUIZ HISTORY" ROUTES (Old "Wrong Answer" logic) ---
 @app.route('/quiz_history')
 @login_required
-def quiz_history():
-    # This shows all past QUIZ ATTEMPTS
+def quiz_history() -> str:
     attempts: List[WrongAnswerSet] = WrongAnswerSet.query.filter_by(
         user_id=current_user.id
     ).order_by(WrongAnswerSet.timestamp.desc()).all()
     
-    # Filter out attempts where the user got 0 wrong
     valid_attempts: List[WrongAnswerSet] = [a for a in attempts if a.wrong_answers]
     return render_template('quiz_history.html', quiz_attempts=valid_attempts)
 
 @app.route('/quiz_history/<int:attempt_id>')
 @login_required
-def quiz_history_detail(attempt_id: int):
-    # This shows the specific wrong answers from ONE quiz attempt
+def quiz_history_detail(attempt_id: int) -> str:
     attempt: Optional[WrongAnswerSet] = WrongAnswerSet.query.options(
         joinedload(WrongAnswerSet.wrong_answers).joinedload(WrongAnswer.question)
     ).filter_by(id=attempt_id, user_id=current_user.id).first_or_404() # type: ignore
@@ -367,14 +349,58 @@ def quiz_history_detail(attempt_id: int):
     return render_template('quiz_history_detail.html', 
                            wrong_answers=wrong_answers, 
                            set_timestamp=attempt.timestamp)
-# --- END OF "QUIZ HISTORY" ROUTES ---
 
 
+# --- MODIFIED: Goal 2 ---
+# This page now shows a list of Question Sets
 @app.route('/my_questions')
 @login_required
-def my_questions():
-    questions: List[Question] = Question.query.filter_by(user_id=current_user.id).order_by(Question.id.desc()).all()
-    return render_template('view_questions.html', questions=questions)
+def my_questions() -> str:
+    question_sets: List[QuestionSet] = QuestionSet.query.filter_by(user_id=current_user.id).order_by(QuestionSet.timestamp.desc()).all()
+    return render_template('my_questions.html', question_sets=question_sets)
+
+# --- NEW: Goal 2 ---
+# This new route shows the questions *inside* a specific set
+@app.route('/my_questions/<int:set_id>')
+@login_required
+def my_questions_detail(set_id: int) -> str:
+    question_set: Optional[QuestionSet] = db.session.get(QuestionSet, set_id)
+    if not question_set or question_set.user_id != current_user.id:
+        flash("未找到题集或无权访问。")
+        return redirect(url_for('my_questions'))
+        
+    questions: List[Question] = question_set.questions
+    return render_template('view_question_set_detail.html', questions=questions, set=question_set)
+
+
+# --- NEW: Goal 1 (Delete Functionality) ---
+# Step 1: Show a confirmation page
+@app.route('/delete_confirm/<int:set_id>')
+@login_required
+def delete_question_set_confirm(set_id: int) -> str:
+    question_set: Optional[QuestionSet] = db.session.get(QuestionSet, set_id)
+    if not question_set or question_set.user_id != current_user.id:
+        flash("未找到题集或无权访问。")
+        return redirect(url_for('my_questions'))
+    return render_template('delete_confirm.html', set=question_set)
+
+# Step 2: Perform the actual deletion
+@app.route('/delete_question_set/<int:set_id>', methods=['POST'])
+@login_required
+def delete_question_set(set_id: int) -> str:
+    question_set: Optional[QuestionSet] = db.session.get(QuestionSet, set_id)
+    if not question_set or question_set.user_id != current_user.id:
+        flash("未找到题集或无权访问。")
+        return redirect(url_for('my_questions'))
+        
+    set_name: str = question_set.name
+    # The cascade rules in models.py will handle deleting all child Questions
+    # and WrongAnswers, and setting history to NULL.
+    db.session.delete(question_set)
+    db.session.commit()
+    
+    flash(f'题集 "{set_name}" 已被永久删除。')
+    return redirect(url_for('my_questions'))
 
 
 if __name__ == '__main__':

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{# This is the new page for "My Question Bank" (Goal 2) #}
+{# It shows a list of sets, not all questions #}
+
+{% block content %}
+    <h2>我的题库</h2>
+    <p>这里是你上传的所有题集。你可以查看、测验或删除它们。</p>
+
+    <div class="wrong-answer-set-list">
+        {% for set in question_sets %}
+            <div class="wrong-answer-set-item">
+                <!-- We don't use a full link here to make space for multiple buttons -->
+                <div class="set-link">
+                    <h3>
+                        {{ set.name }}
+                    </h3>
+                    <p>
+                        上传于: {{ set.timestamp.strftime('%Y-%m-%d') }} | 共 {{ set.questions|length }} 道题
+                    </p>
+                    
+                    <!-- Button Group -->
+                    <div class="button-group" style="margin-top: 15px;">
+                        <!-- View Questions Button -->
+                        <a href="{{ url_for('my_questions_detail', set_id=set.id) }}" class="button button-small">查看题目</a>
+                        
+                        <!-- Start Quiz Button -->
+                        <form action="{{ url_for('start_quiz') }}" method="POST" style="display: inline-block;">
+                            <input type="hidden" name="question_set_id" value="{{ set.id }}">
+                            <input type="hidden" name="num_questions" value="{{ set.questions|length }}">
+                            <button type="submit" class="button button-small button-secondary">开始测验</button>
+                        </form>
+                        
+                        <!-- Delete Button (Goal 1) -->
+                        <a href="{{ url_for('delete_question_set_confirm', set_id=set.id) }}" class="button button-small button-danger">删除</a>
+                    </div>
+                </div>
+            </div>
+        {% endfor %}
+
+        {% if not question_sets %}
+        <div class="form-container">
+            <h3>题库为空</h3>
+            <p>你还没有上传任何题集。请先导入一个 Excel 文件。</p>
+            <a href="{{ url_for('import_excel') }}" class="button">立即导入</a>
+        </div>
+        {% endif %}
+    </div>
+{% endblock %}
