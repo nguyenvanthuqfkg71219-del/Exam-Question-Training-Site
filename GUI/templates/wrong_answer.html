@@ -1,50 +1,50 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="wrong-answer-container">
-    <h2>Wrong Answers from {{ set_timestamp.strftime('%Y-%m-%d %H:%M') }}</h2>
-    <a href="{{ url_for('wrong_answer_sets') }}" class="button">&larr; Back to All Sets</a>
+    <!-- Title is passed from the route -->
+    <h2>{{ title }} (共 {{ questions|length }} 道)</h2>
+    <a href="{{ url_for('wrong_answer_sets') }}" class="button">&larr; 返回错题集</a>
 
-    {% for wrong_answer in wrong_answers %}
-    <div class="wrong-answer-item">
-        <h4>{{ loop.index }}. {{ wrong_answer.question.question_text }}</h4>
-        
-        <!-- MODIFIED: Add a note for multiple choice questions -->
-        {% if wrong_answer.question.is_multiple_choice %}
-            <p class="multi-choice-note">(Multiple-choice question)</p>
-        {% endif %}
+    <div class="question-list">
+        {% for question in questions %}
+            <!-- We reuse the style from .wrong-answer-item for consistency -->
+            <div class="wrong-answer-item">
+                <h4>{{ loop.index }}. {{ question.question_text }}</h4>
+                
+                {% if question.is_multiple_choice %}
+                    <p class="multi-choice-note">(多选题)</p>
+                {% endif %}
 
-        {% set options = [
-            {'value': 'A', 'text': wrong_answer.question.option_a},
-            {'value': 'B', 'text': wrong_answer.question.option_b},
-            {'value': 'C', 'text': wrong_answer.question.option_c},
-            {'value': 'D', 'text': wrong_answer.question.option_d}
-        ] %}
-        
-        <div class="options-container">
-            {% for option in options %}
-                <!-- MODIFIED: Logic to handle multiple choice answers -->
-                {% set is_correct = option.value in wrong_answer.question.correct_answer %}
-                {% set is_selected = option.value in wrong_answer.selected_answer %}
-            
-                <div class="option 
-                    {% if is_correct %}correct{% endif %}
-                    {% if is_selected and not is_correct %}incorrect{% endif %}
-                ">
-                    {{ option.value }}. {{ option.text }}
+                <!-- Display all options, highlighting the correct one(s) -->
+                <div class="options-container">
+                    <div class="option {% if 'A' in question.correct_answer %}correct{% endif %}">
+                        A. {{ question.option_a }}
+                    </div>
+                    <div class="option {% if 'B' in question.correct_answer %}correct{% endif %}">
+                        B. {{ question.option_b }}
+                    </div>
+                    <div class="option {% if 'C' in question.correct_answer %}correct{% endif %}">
+                        C. {{ question.option_c }}
+                    </div>
+                    <div class="option {% if 'D' in question.correct_answer %}correct{% endif %}">
+                        D. {{ question.option_d }}
+                    </div>
                 </div>
-            {% endfor %}
-        </div>
 
-        <p class="answer-key">
-            <strong>Your Answer:</strong> 
-            <span class="user-answer">{{ wrong_answer.selected_answer if wrong_answer.selected_answer else 'No Answer' }}</span>
-        </p>
-        <p class="answer-key">
-            <strong>Correct Answer:</strong> 
-            <span class="correct-answer">{{ wrong_answer.question.correct_answer }}</span>
-        </p>
+                <p class="answer-key">
+                    <strong>正确答案:</strong> 
+                    <span class="correct-answer">{{ question.correct_answer }}</span>
+                </p>
+                <!-- Info about where this question came from -->
+                <p class="question-source-note">
+                    来源题集: {{ question.question_set.name }}
+                </p>
+            </div>
+        {% else %}
+            <div class="form-container">
+                <h3>太棒了!</h3>
+                <p>这个题集中没有你答错的题目。</p>
+            </div>
+        {% endfor %}
     </div>
-    {% endfor %}
-</div>
 {% endblock %}

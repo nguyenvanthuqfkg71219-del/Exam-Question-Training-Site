@@ -2,32 +2,43 @@
 
 {% block content %}
     <h2>我的错题集</h2>
+    <p>这里按题集分类，汇总了你所有答错的题目。</p>
 
-    {% if wrong_answer_sets %}
-        <div class="wrong-answer-set-list">
-            <!-- Loop through each set and display it as a styled card -->
-            {% for set in wrong_answer_sets %}
-                <div class="wrong-answer-set-item">
-                    <!-- The entire card is a link -->
-                    <a href="{{ url_for('wrong_answer', set_id=set.id) }}" class="set-link">
-                        <h3>
-                            测验时间: {{ set.timestamp.strftime('%Y-%m-%d %H:%M') }}
-                        </h3>
-                        <p>
-                            本次测验你答错了 <strong>{{ set.wrong_answers|length }}</strong> 道题。
-                        </p>
-                        <!-- Simple "call to action" text -->
-                        <span class="view-review-text">查看复习 &rarr;</span>
-                    </a>
-                </div>
-            {% endfor %}
-        </div>
+    <!-- Point 3: "All Wrong Answers" Button -->
+    <div class="wrong-answer-set-item all-sets-card">
+        <a href="{{ url_for('wrong_answer', set_id='all') }}" class="set-link">
+            <h3>
+                所有错题
+            </h3>
+            <p>
+                查看你所有题集中答错过的题目总汇。
+            </p>
+            <span class="view-review-text">查看总汇 &rarr;</span>
+        </a>
+    </div>
+
+    <hr class="set-divider">
+
+    <!-- Point 2: List of Question Sets -->
+    {% if question_sets %}
+        {% for set in question_sets %}
+            <div class="wrong-answer-set-item">
+                <a href="{{ url_for('wrong_answer', set_id=set.id) }}" class="set-link">
+                    <h3>
+                        {{ set.name }}
+                    </h3>
+                    <p>
+                        上传于: {{ set.timestamp.strftime('%Y-%m-%d') }} | 共 {{ set.questions|length }} 道题
+                    </p>
+                    <span class="view-review-text">查看错题 &rarr;</span>
+                </a>
+            </div>
+        {% endfor %}
     {% else %}
-        <!-- Show a nice card if no wrong answers are found -->
         <div class="form-container">
-            <h3>太棒了!</h3>
-            <p>你目前没有错题记录。去开始一个新的测验吧！</p>
-            <a href="{{ url_for('index') }}" class="button">返回首页</a>
+            <h3>没有错题集</h3>
+            <p>你还没有上传任何题集。请先导入一个 Excel 文件。</p>
+            <a href="{{ url_for('import_excel') }}" class="button">立即导入</a>
         </div>
     {% endif %}
 {% endblock %}

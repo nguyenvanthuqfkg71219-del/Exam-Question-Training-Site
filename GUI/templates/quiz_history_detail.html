@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="wrong-answer-container">
+    <h2>测验详情: {{ set_timestamp.strftime('%Y-%m-%d %H:%M') }}</h2>
+    <a href="{{ url_for('quiz_history') }}" class="button">&larr; 返回测验历史</a>
+
+    {% for wrong_answer in wrong_answers %}
+    <div class="wrong-answer-item">
+        <h4>{{ loop.index }}. {{ wrong_answer.question.question_text }}</h4>
+        
+        {% if wrong_answer.question.is_multiple_choice %}
+            <p class="multi-choice-note">(多选题)</p>
+        {% endif %}
+
+        {% set options = [
+            {'value': 'A', 'text': wrong_answer.question.option_a},
+            {'value': 'B', 'text': wrong_answer.question.option_b},
+            {'value': 'C', 'text': wrong_answer.question.option_c},
+            {'value': 'D', 'text': wrong_answer.question.option_d}
+        ] %}
+        
+        <div class="options-container">
+            {% for option in options %}
+                {% set is_correct = option.value in wrong_answer.question.correct_answer %}
+                {% set is_selected = option.value in wrong_answer.selected_answer %}
+            
+                <div class="option 
+                    {% if is_correct %}correct{% endif %}
+                    {% if is_selected and not is_correct %}incorrect{% endif %}
+                ">
+                    {{ option.value }}. {{ option.text }}
+                </div>
+            {% endfor %}
+        </div>
+
+        <p class="answer-key">
+            <strong>你的答案:</strong> 
+            <span class="user-answer">{{ wrong_answer.selected_answer if wrong_answer.selected_answer else 'No Answer' }}</span>
+        </p>
+        <p class="answer-key">
+            <strong>正确答案:</strong> 
+            <span class="correct-answer">{{ wrong_answer.question.correct_answer }}</span>
+        </p>
+    </div>
+    {% endfor %}
+</div>
+{% endblock %}

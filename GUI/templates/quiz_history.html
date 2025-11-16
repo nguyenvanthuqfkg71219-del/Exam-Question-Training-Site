@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block content %}
+    <h2>测验历史</h2>
+    <p>这里显示了你所有的测验尝试记录。</p>
+
+    {% if quiz_attempts %}
+        <div class="wrong-answer-set-list">
+            {% for attempt in quiz_attempts %}
+                <div class="wrong-answer-set-item">
+                    <a href="{{ url_for('quiz_history_detail', attempt_id=attempt.id) }}" class="set-link">
+                        <h3>
+                            测验时间: {{ attempt.timestamp.strftime('%Y-%m-%d %H:%M') }}
+                        </h3>
+                        <!-- Display which question set was used -->
+                        <p class="quiz-history-source">
+                            <strong>题集:</strong> 
+                            {% if attempt.question_set %}
+                                {{ attempt.question_set.name }}
+                            {% else %}
+                                混合题集
+                            {% endif %}
+                        </p>
+                        <p>
+                            本次测验你答错了 <strong>{{ attempt.wrong_answers|length }}</strong> 道题。
+                        </p>
+                        <span class="view-review-text">查看详情 &rarr;</span>
+                    </a>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <div class="form-container">
+            <h3>没有历史记录</h3>
+            <p>你还没有完成任何测验。去开始一个新的测验吧！</p>
+            <a href="{{ url_for('index') }}" class="button">返回首页</a>
+        </div>
+    {% endif %}
+{% endblock %}
